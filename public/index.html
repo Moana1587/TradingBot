@@ -1508,6 +1508,12 @@
         }
 
         async function autoBuyToken(mint, token) {
+            // Defensive check: only proceed if auto-buying is explicitly enabled
+            if (!autoBuyingActive) {
+                console.log('Auto-buying is disabled, skipping buy for', mint);
+                return false;
+            }
+            
             // Check if already have position
             if (positions.has(mint) && positions.get(mint).hasPosition) {
                 return false; // Already have position, skip
@@ -2066,6 +2072,14 @@
         initializeMiniBalanceChart();
         updateStats();
         updateTable();
+        
+        // Ensure auto-buying is disabled on startup
+        autoBuyingActive = false;
+        const startBuyingBtn = document.getElementById('startBuyingBtn');
+        if (startBuyingBtn) {
+            startBuyingBtn.textContent = '🛒 Start Buying';
+            startBuyingBtn.style.background = '#667eea';
+        }
     </script>
 </body>
 
