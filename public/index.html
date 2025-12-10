@@ -1515,8 +1515,8 @@
                 return false; // Already bought, skip
             }
 
-            // Check liquidity requirement (must be above 10 SOL)
-            if (token.currentLiquidity <= 10) {
+            // Check liquidity requirement (must be above 7 SOL)
+            if (token.currentLiquidity <= 7) {
                 return false; // Liquidity too low, skip
             }
 
@@ -1601,6 +1601,87 @@
             updateTable();
             
             return true;
+        }
+
+        function checkAutoSellConditions(mint, token) {
+            if (!boughtTokens.has(mint)) {
+                return; // Not a bought token
+            }
+
+            const buyInfo = boughtTokens.get(mint);
+            const buyPrice = buyInfo.buyPrice;
+            const buyFee = buyInfo.buyFee || 0;
+            const buyTransferFee = buyInfo.transferFee || TRANSFER_FEE;
+            const totalBuyCost = buyInfo.totalBuyCost || (buyPrice + buyFee + buyTransferFee);
+            
+            const currentPrice = token.currentPrice;
+            let shouldSell = false;
+            let sellReason = '';
+            let notificationColor = '#ff9800';
+
+            // Check stop-loss condition: price below 80% of buying price
+            const stopLossThreshold = buyPrice * 0.80; // 80% of buy price
+            if (currentPrice <= stopLossThreshold) {
+                shouldSell = true;
+                sellReason = `Stop Loss: Price dropped to ${((currentPrice / buyPrice) * 100).toFixed(2)}% of buy price`;
+                notificationColor = '#f44336'; // Red for stop loss
+            }
+            // Check take-profit condition: (buy price + all fees) * 1.5
+            else {
+                const takeProfitThreshold = totalBuyCost * 1.7;
+                if (currentPrice >= takeProfitThreshold) {
+                    shouldSell = true;
+                    const profitPercent = ((currentPrice - totalBuyCost) / totalBuyCost * 100).toFixed(2);
+                    sellReason = `Take Profit: Price reached ${profitPercent}% profit`;
+                    notificationColor = '#4caf50'; // Green for profit
+                }
+            }
+
+            if (shouldSell) {
+                console.log('Auto-sell triggered:', {
+                    mint: mint,
+                    buyPrice: buyPrice,
+                    totalBuyCost: totalBuyCost,
+                    currentPrice: currentPrice,
+                    reason: sellReason
+                });
+
+                // Show notification before selling
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: ${notificationColor};
+                    color: white;
+                    padding: 15px 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    z-index: 2000;
+                    font-size: 14px;
+                    max-width: 300px;
+                `;
+                const priceRatio = ((currentPrice / buyPrice) * 100).toFixed(2);
+                const profitPercent = ((currentPrice - totalBuyCost) / totalBuyCost * 100).toFixed(2);
+                notification.innerHTML = `
+                    <strong>💰 Auto-Sell Triggered</strong><br>
+                    ${mint.slice(0, 8)}...<br>
+                    ${sellReason}<br>
+                    Buy Price: ${formatPrice(buyPrice)} SOL<br>
+                    Current Price: ${formatPrice(currentPrice)} SOL<br>
+                    Price Ratio: ${priceRatio}%<br>
+                    Profit/Loss: ${profitPercent >= 0 ? '+' : ''}${profitPercent}%
+                `;
+                document.body.appendChild(notification);
+                
+                // Remove notification after 3 seconds
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+
+                // Automatically sell the token
+                sellToken(mint);
+            }
         }
 
         function sellToken(mint) {
@@ -1728,6 +1809,11 @@
                     if (autoBuyingActive && isNewToken) {
                         // Automatically buy the token if it meets criteria
                         autoBuyToken(data.mint, updatedToken);
+                    }
+
+                    // Auto-sell logic: Check if bought token should be sold based on price threshold
+                    if (boughtTokens.has(data.mint)) {
+                        checkAutoSellConditions(data.mint, updatedToken);
                     }
 
                     // Update price history
