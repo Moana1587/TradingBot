@@ -2,8 +2,6 @@ import { config } from './config/env';
 import { logger } from './utils/logger';
 import { connectionManager } from './services/connection';
 import { TransactionMonitor } from './services/monitor';
-import { tradingEngine } from './services/trading';
-import { positionManager } from './services/positions';
 import { healthMonitor } from './services/health';
 import { priceMonitor } from './services/price-monitor';
 import { webUI } from './services/web-ui';
@@ -96,7 +94,60 @@ async function main() {
     });
 
     monitor.on('trade', async (event: TradeEvent) => {
-      await handleTradeEvent(event);
+      // Track price when target wallet buys
+      if (event.type === 'buy' && event.tokenAmount > 0n) {
+        const buyPrice = Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL;
+        const buyLiquidity = event.liquidity; // Use liquidity from trade event if available
+        const buyTime = event.timestamp || Date.now();
+        const targetBuyPrice = buyPrice; // Price when target wallet bought
+
+        // Fetch target wallet balance and calculate balance before buy
+        // Balance before buy = current balance + SOL amount spent
+        let balanceBeforeBuy: number | undefined;
+        try {
+          const targetWalletPubkey = new PublicKey(event.user);
+          const currentBalance = await connectionManager.connection.getBalance(targetWalletPubkey);
+          const currentBalanceSol = currentBalance / LAMPORTS_PER_SOL;
+          const solSpent = Number(event.solAmount) / LAMPORTS_PER_SOL;
+          balanceBeforeBuy = currentBalanceSol + solSpent; // Add back the SOL spent to get balance before buy
+        } catch (error) {
+          logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
+        }
+
+        // Start tracking price for this token (real-time via WebSocket)
+        await priceMonitor.trackToken(
+          event.mint,
+          event.protocol,
+          buyPrice,
+          event.pool,
+          buyLiquidity,
+          event.user,
+          buyTime,
+          targetBuyPrice,
+          balanceBeforeBuy,
+        );
+      }
+
+      // Update sell time and price when target wallet sells
+      if (event.type === 'sell') {
+        const sellTime = event.timestamp || Date.now();
+        const sellPrice = event.tokenAmount > 0n
+          ? Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL
+          : undefined; // Price when target wallet sold
+        const sellLiquidity = event.liquidity; // Liquidity when target wallet sold
+
+        // Fetch target wallet balance after sell
+        let balanceAfterSell: number | undefined;
+        try {
+          const targetWalletPubkey = new PublicKey(event.user);
+          const balance = await connectionManager.connection.getBalance(targetWalletPubkey);
+          balanceAfterSell = balance / LAMPORTS_PER_SOL;
+        } catch (error) {
+          logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
+        }
+
+        priceMonitor.updateSellTime(event.mint, sellTime, sellPrice, undefined, undefined, sellLiquidity, balanceAfterSell);
+      }
     });
 
     monitor.start();
@@ -154,211 +205,6 @@ async function main() {
   } catch (error) {
     logger.error('Main', 'Failed to start bot', error);
     process.exit(1);
-  }
-}
-
-async function handleTradeEvent(event: TradeEvent): Promise<void> {
-  try {
-    const solAmount = Number(event.solAmount) / LAMPORTS_PER_SOL;
-    const tokenAmountStr = event.tokenAmount.toString();
-
-    // Check if this is our own trade
-    const isOwnTrade = event.user === connectionManager.wallet.publicKey.toString();
-
-    if (isOwnTrade) {
-      logger.info('Main', `Own trade detected: ${event.type} ${event.mint.slice(0, 8)}...`);
-      positionManager.updatePosition(event, true);
-      return;
-    }
-
-    // Validate trade amount
-    if (solAmount < config.minTradingAmountSol) {
-      logger.debug(
-        'Main',
-        `Skipping trade - amount ${solAmount.toFixed(4)} SOL < minimum ${config.minTradingAmountSol} SOL`,
-      );
-      return;
-    }
-
-    if (event.type === 'buy' && solAmount >= config.maxTradingAmountSol) {
-      logger.info(
-        'Main',
-        `Skipping buy - amount ${solAmount.toFixed(4)} SOL >= maximum ${config.maxTradingAmountSol} SOL`,
-      );
-      return;
-    }
-
-    // Calculate copy amounts
-    const copyPercentage = config.copyPercentage;
-    const copySolAmount = solAmount * (copyPercentage / 100);
-    // const copyTokenAmount = (event.tokenAmount * BigInt(Math.floor(copyPercentage * 100))) / 10000n;
-
-    // Build liquidity info string if available (extracted from WebSocket logs, no API call)
-    let liquidityInfo = '';
-    if (event.liquidity !== undefined && event.type === 'buy' && event.protocol === 'pumpfun') {
-      liquidityInfo = ` | Liquidity: ${event.liquidity.toFixed(4)} SOL`;
-    }
-
-    logger.info(
-      'Main',
-      `Copy trade: ${event.type.toUpperCase()} ${event.mint.slice(0, 8)}... | ` +
-      `Target wallet: ${event.user.slice(0, 8)}... | ` +
-      `Target: ${solAmount.toFixed(4)} SOL | Copy: ${copySolAmount.toFixed(4)} SOL (${copyPercentage}%) | ` +
-      `${tokenAmountStr} tokens${liquidityInfo}`,
-    );
-
-    // Calculate buy price when target wallet buys and start tracking
-    if (event.type === 'buy' && event.tokenAmount > 0n) {
-      const buyPrice = Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL;
-      const buyLiquidity = event.liquidity; // Use liquidity from trade event if available
-      // event.timestamp is already in milliseconds (set in monitor.ts from blockTime)
-      const buyTime = event.timestamp || Date.now();
-      const targetBuyPrice = buyPrice; // Price when target wallet bought
-
-      // Fetch target wallet balance and calculate balance before buy
-      // Balance before buy = current balance + SOL amount spent
-      let balanceBeforeBuy: number | undefined;
-      try {
-        const targetWalletPubkey = new PublicKey(event.user);
-        const currentBalance = await connectionManager.connection.getBalance(targetWalletPubkey);
-        const currentBalanceSol = currentBalance / LAMPORTS_PER_SOL;
-        const solSpent = Number(event.solAmount) / LAMPORTS_PER_SOL;
-        balanceBeforeBuy = currentBalanceSol + solSpent; // Add back the SOL spent to get balance before buy
-      } catch (error) {
-        logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
-      }
-
-      // Start tracking price for this token (real-time via WebSocket)
-      await priceMonitor.trackToken(
-        event.mint,
-        event.protocol,
-        buyPrice,
-        event.pool,
-        buyLiquidity,
-        event.user,
-        buyTime,
-        targetBuyPrice,
-        balanceBeforeBuy,
-      );
-    }
-
-    // Update sell time and price when target wallet sells
-    if (event.type === 'sell') {
-      // event.timestamp is already in milliseconds (set in monitor.ts from blockTime)
-      const sellTime = event.timestamp || Date.now();
-      const sellPrice = event.tokenAmount > 0n
-        ? Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL
-        : undefined; // Price when target wallet sold
-      const sellLiquidity = event.liquidity; // Liquidity when target wallet sold
-
-      // Fetch target wallet balance after sell
-      let balanceAfterSell: number | undefined;
-      try {
-        const targetWalletPubkey = new PublicKey(event.user);
-        const balance = await connectionManager.connection.getBalance(targetWalletPubkey);
-        balanceAfterSell = balance / LAMPORTS_PER_SOL;
-      } catch (error) {
-        logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
-      }
-
-      priceMonitor.updateSellTime(event.mint, sellTime, sellPrice, undefined, undefined, sellLiquidity, balanceAfterSell);
-    }
-
-    // Execute trade
-    const result = await tradingEngine.executeTrade(event);
-
-    if (result.success) {
-      logger.info('Main', `Trade executed successfully: ${result.signature}`);
-      // Create a modified event with our copied amounts for position tracking
-      const copyPercentage = config.copyPercentage;
-      const copyTokenAmount = (event.tokenAmount * BigInt(Math.floor(copyPercentage * 100))) / 10000n;
-      const copySolAmount = (event.solAmount * BigInt(Math.floor(copyPercentage * 100))) / 10000n;
-      const ourTradeEvent: TradeEvent = {
-        ...event,
-        user: connectionManager.wallet.publicKey.toString(),
-        tokenAmount: copyTokenAmount,
-        solAmount: copySolAmount,
-      };
-      positionManager.updatePosition(ourTradeEvent, false);
-
-      // Calculate and track fees
-      const copySolAmountNumber = Number(copySolAmount) / LAMPORTS_PER_SOL;
-
-      if (event.type === 'buy') {
-        // Estimate fees for buy transaction
-        // Base transaction fee: ~5000 lamports (0.000005 SOL)
-        // Priority fee: estimated ~10000 lamports (0.00001 SOL) for fast execution
-        // Protocol fees: typically 1-2% of trade amount (using 1.5% as estimate)
-        const baseTxFee = 0.000005; // Base transaction fee
-        const priorityFee = 0.00001; // Priority fee estimate
-        const protocolFeeRate = 0.015; // 1.5% protocol fee estimate
-        const protocolFee = copySolAmountNumber * protocolFeeRate;
-        const totalBuyFee = baseTxFee + priorityFee + protocolFee;
-        const totalBuyAmount = copySolAmountNumber + totalBuyFee;
-        const buyTokenAmount = Number(copyTokenAmount);
-        const buyPrice = Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL; // Price per token
-
-        // Track buy fees and token amounts
-        priceMonitor.updateBuyFees(event.mint, totalBuyAmount, totalBuyFee, buyTokenAmount, buyPrice);
-      } else if (event.type === 'sell') {
-        // Estimate fees for sell transaction
-        // Base transaction fee: ~5000 lamports (0.000005 SOL)
-        // Priority fee: estimated ~10000 lamports (0.00001 SOL) for fast execution
-        // Protocol fees: typically 1-2% of trade amount (using 1.5% as estimate)
-        const baseTxFee = 0.000005; // Base transaction fee
-        const priorityFee = 0.00001; // Priority fee estimate
-        const protocolFeeRate = 0.015; // 1.5% protocol fee estimate
-        const sellAmountNumber = Number(copySolAmount) / LAMPORTS_PER_SOL;
-        const protocolFee = sellAmountNumber * protocolFeeRate;
-        const totalSellFee = baseTxFee + priorityFee + protocolFee;
-        const netSellAmount = sellAmountNumber - totalSellFee; // Net amount received after fees
-
-        // Update sell time with fees
-        const sellTime = event.timestamp || Date.now();
-        const sellPrice = event.tokenAmount > 0n
-          ? Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL
-          : undefined;
-        const sellLiquidity = event.liquidity; // Liquidity when target wallet sold
-        const sellTokenAmount = Number(copyTokenAmount);
-
-        // Fetch target wallet balance after sell
-        let balanceAfterSell: number | undefined;
-        try {
-          const targetWalletPubkey = new PublicKey(event.user);
-          const balance = await connectionManager.connection.getBalance(targetWalletPubkey);
-          balanceAfterSell = balance / LAMPORTS_PER_SOL;
-        } catch (error) {
-          logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
-        }
-
-        // Update sell time with our trade data (token amounts and prices for profit calculation)
-        priceMonitor.updateSellTime(event.mint, sellTime, sellPrice, netSellAmount, totalSellFee, sellLiquidity, balanceAfterSell, sellTokenAmount);
-      }
-
-      // Log wallet balance asynchronously (non-blocking) after successful trade
-      // Using setImmediate to defer execution so it doesn't block the main flow
-      setImmediate(async () => {
-        try {
-          const solBalance = await connectionManager.getBalance();
-          const wsolBalance = await getWsolBalance(
-            connectionManager.connection,
-            connectionManager.wallet.publicKey,
-          );
-          const wsolBalanceSol = Number(wsolBalance) / LAMPORTS_PER_SOL;
-          const totalBalance = solBalance + wsolBalanceSol;
-          logger.info(
-            'Main',
-            `Wallet balance after trade: ${totalBalance.toFixed(4)} SOL (${solBalance.toFixed(4)} SOL + ${wsolBalanceSol.toFixed(4)} WSOL)`,
-          );
-        } catch (error) {
-          logger.warn('Main', 'Failed to get wallet balance after trade', error);
-        }
-      });
-    } else {
-      logger.error('Main', `Trade failed: ${result.error}`);
-    }
-  } catch (error) {
-    logger.error('Main', 'Error handling trade event', error);
   }
 }
 

@@ -1525,9 +1525,9 @@
             }
 
             try {
-                // Calculate buy amount - use target wallet's buy amount if available
-                // For now, use a default amount based on the token price
-                const solAmount = token.targetWalletBuyAmount || 0.1; // Default 0.1 SOL or use target wallet amount
+                // Calculate buy amount - use 1% of target wallet's buy amount
+                const targetBuyAmount = token.targetWalletBuyAmount || 0;
+                const solAmount = targetBuyAmount > 0 ? targetBuyAmount * 0.01 : 0.1; // 1% of target wallet's buy amount, or default 0.1 SOL
 
                 // Send trade request via WebSocket to execute real trade
                 const tradeMessage = {

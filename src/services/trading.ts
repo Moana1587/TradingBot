@@ -98,10 +98,23 @@ export class TradingEngine {
   private async executePumpFunTrade(event: TradeEvent): Promise<TradeResult> {
     const mint = new PublicKey(event.mint);
 
-    // Calculate copy amounts
-    const copyPercentage = BigInt(Math.floor(config.copyPercentage * 100));
-    const copyTokenAmount = (event.tokenAmount * copyPercentage) / 10000n;
-    const copySolAmount = (event.solAmount * copyPercentage) / 10000n;
+    // Check if this is our own trade (manual trade from UI)
+    const isOwnTrade = event.user === connectionManager.wallet.publicKey.toString();
+
+    // Calculate copy amounts (skip for our own trades - use amounts as-is)
+    let copyTokenAmount: bigint;
+    let copySolAmount: bigint;
+    
+    if (isOwnTrade) {
+      // For our own trades, use the amounts as-is (already calculated as 1% of target wallet)
+      copyTokenAmount = event.tokenAmount;
+      copySolAmount = event.solAmount;
+    } else {
+      // For copy trades, apply copy percentage
+      const copyPercentage = BigInt(Math.floor(config.copyPercentage * 100));
+      copyTokenAmount = (event.tokenAmount * copyPercentage) / 10000n;
+      copySolAmount = (event.solAmount * copyPercentage) / 10000n;
+    }
 
     // Apply slippage tolerance for buys
     const slippageBps = BigInt(Math.floor(config.slippageTolerancePercent * 100));
@@ -273,10 +286,23 @@ export class TradingEngine {
       throw new Error('Pool address is required for AMM trades');
     }
 
-    // Calculate copy amounts
-    const copyPercentage = BigInt(Math.floor(config.copyPercentage * 100));
-    const copyTokenAmount = (event.tokenAmount * copyPercentage) / 10000n;
-    const copySolAmount = (event.solAmount * copyPercentage) / 10000n;
+    // Check if this is our own trade (manual trade from UI)
+    const isOwnTrade = event.user === connectionManager.wallet.publicKey.toString();
+
+    // Calculate copy amounts (skip for our own trades - use amounts as-is)
+    let copyTokenAmount: bigint;
+    let copySolAmount: bigint;
+    
+    if (isOwnTrade) {
+      // For our own trades, use the amounts as-is (already calculated as 1% of target wallet)
+      copyTokenAmount = event.tokenAmount;
+      copySolAmount = event.solAmount;
+    } else {
+      // For copy trades, apply copy percentage
+      const copyPercentage = BigInt(Math.floor(config.copyPercentage * 100));
+      copyTokenAmount = (event.tokenAmount * copyPercentage) / 10000n;
+      copySolAmount = (event.solAmount * copyPercentage) / 10000n;
+    }
 
     // Apply slippage tolerance for buys
     const slippageBps = BigInt(Math.floor(config.slippageTolerancePercent * 100));
