@@ -818,15 +818,30 @@
             const rows = Array.from(priceData.values())
                 .sort((a, b) => (b.firstSeenTimestamp || 0) - (a.firstSeenTimestamp || 0))
                 .map(token => {
-                    const priceChangeClass = token.priceChangePercent >= 0 ? 'positive' : 'negative';
-                    const liqChangeClass = token.liquidityChangePercent >= 0 ? 'positive' : 'negative';
-
                     // Calculate profit/loss for positions
                     let profitClass = '';
                     let profitDisplay = '-';
                     const hasPosition = positions.has(token.mint) && positions.get(token.mint).hasPosition;
                     const position = hasPosition ? positions.get(token.mint) : null;
                     const ourBuyPrice = position && position.buyPrice ? position.buyPrice : null;
+                    const ourBuyLiquidity = position && position.buyLiquidity ? position.buyLiquidity : null;
+                    
+                    // Calculate price change and liquidity change based on our buy price/liquidity if we have a position
+                    let priceChangePercent = token.priceChangePercent;
+                    let liquidityChangePercent = token.liquidityChangePercent;
+                    
+                    if (hasPosition && ourBuyPrice !== null && ourBuyPrice > 0) {
+                        // Calculate price change based on our buy price
+                        priceChangePercent = ((token.currentPrice - ourBuyPrice) / ourBuyPrice) * 100;
+                    }
+                    
+                    if (hasPosition && ourBuyLiquidity !== null && ourBuyLiquidity > 0 && token.currentLiquidity !== undefined) {
+                        // Calculate liquidity change based on our buy liquidity
+                        liquidityChangePercent = ((token.currentLiquidity - ourBuyLiquidity) / ourBuyLiquidity) * 100;
+                    }
+                    
+                    const priceChangeClass = priceChangePercent >= 0 ? 'positive' : 'negative';
+                    const liqChangeClass = liquidityChangePercent >= 0 ? 'positive' : 'negative';
                     
                     if (hasPosition && ourBuyPrice) {
                         // Calculate profit based on our buy price and current price
@@ -850,9 +865,9 @@
                             <td data-column="mint" class="mint">${token.mint.slice(0, 8)}...</td>
                             <td data-column="currentPrice" class="price">${formatPrice(token.currentPrice)} SOL</td>
                             <td data-column="buyPrice" class="price">${formatPrice(ourBuyPrice || token.buyPrice || token.targetWalletBuyPrice)} SOL</td>
-                            <td data-column="priceChange"><span class="change ${priceChangeClass}">${formatPercent(token.priceChangePercent)}</span></td>
+                            <td data-column="priceChange"><span class="change ${priceChangeClass}">${formatPercent(priceChangePercent)}</span></td>
                             <td data-column="currentLiquidity" class="liquidity">${formatLiquidity(token.currentLiquidity)} SOL</td>
-                            <td data-column="liquidityChange"><span class="change ${liqChangeClass}">${formatPercent(token.liquidityChangePercent)}</span></td>
+                            <td data-column="liquidityChange"><span class="change ${liqChangeClass}">${formatPercent(liquidityChangePercent)}</span></td>
                             <td data-column="timeSinceLaunch">${token.timeSinceLaunch !== undefined ? formatTimeSinceLaunch(token.timeSinceLaunch) : '-'}</td>
                             <td data-column="targetBuyTime">${formatDateTime(token.targetWalletBuyTime)}</td>
                             <td data-column="buyFee" class="price">${token.buyFee !== undefined ? formatPrice(token.buyFee) + ' SOL' : '-'}</td>
@@ -877,14 +892,42 @@
             const token = priceData.get(mint);
             if (!token) return;
 
-            const priceChangeClass = token.priceChangePercent >= 0 ? 'positive' : 'negative';
-            const liqChangeClass = token.liquidityChangePercent >= 0 ? 'positive' : 'negative';
-            const profitClass = token.profit !== undefined && token.profit !== null
-                ? (token.profit >= 0 ? 'positive' : 'negative')
-                : '';
-            const profitDisplay = token.profit !== undefined && token.profit !== null
-                ? `${token.profit >= 0 ? '+' : ''}${formatPrice(token.profit)} SOL`
-                : '-';
+            // Check if we have a position and calculate based on our buy price/liquidity
+            const hasPosition = positions.has(mint) && positions.get(mint).hasPosition;
+            const position = hasPosition ? positions.get(mint) : null;
+            const ourBuyPrice = position && position.buyPrice ? position.buyPrice : null;
+            const ourBuyLiquidity = position && position.buyLiquidity ? position.buyLiquidity : null;
+            
+            // Calculate price change and liquidity change based on our buy price/liquidity if we have a position
+            let priceChangePercent = token.priceChangePercent;
+            let liquidityChangePercent = token.liquidityChangePercent;
+            
+            if (hasPosition && ourBuyPrice !== null && ourBuyPrice > 0) {
+                // Calculate price change based on our buy price
+                priceChangePercent = ((token.currentPrice - ourBuyPrice) / ourBuyPrice) * 100;
+            }
+            
+            if (hasPosition && ourBuyLiquidity !== null && ourBuyLiquidity > 0 && token.currentLiquidity !== undefined) {
+                // Calculate liquidity change based on our buy liquidity
+                liquidityChangePercent = ((token.currentLiquidity - ourBuyLiquidity) / ourBuyLiquidity) * 100;
+            }
+            
+            const priceChangeClass = priceChangePercent >= 0 ? 'positive' : 'negative';
+            const liqChangeClass = liquidityChangePercent >= 0 ? 'positive' : 'negative';
+            
+            // Calculate profit/loss
+            let profitClass = '';
+            let profitDisplay = '-';
+            if (hasPosition && ourBuyPrice) {
+                const buyPrice = ourBuyPrice;
+                const sellPrice = token.currentPrice;
+                const netProfit = sellPrice - buyPrice;
+                profitClass = netProfit >= 0 ? 'positive' : 'negative';
+                profitDisplay = `${netProfit >= 0 ? '+' : ''}${formatPrice(netProfit)} SOL`;
+            } else if (token.profit !== undefined && token.profit !== null) {
+                profitClass = token.profit >= 0 ? 'positive' : 'negative';
+                profitDisplay = `${token.profit >= 0 ? '+' : ''}${formatPrice(token.profit)} SOL`;
+            }
 
             // Calculate balance change
             let balanceChange = null;
@@ -913,11 +956,11 @@
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Buy Price</div>
-                        <div class="detail-value">${formatPrice(token.buyPrice)} SOL</div>
+                        <div class="detail-value">${formatPrice(ourBuyPrice || token.buyPrice || token.targetWalletBuyPrice)} SOL</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Price Change</div>
-                        <div class="detail-value"><span class="change ${priceChangeClass}">${formatPercent(token.priceChangePercent)}</span></div>
+                        <div class="detail-value"><span class="change ${priceChangeClass}">${formatPercent(priceChangePercent)}</span></div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Current Liquidity</div>
@@ -925,7 +968,7 @@
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Liquidity Change</div>
-                        <div class="detail-value"><span class="change ${liqChangeClass}">${formatPercent(token.liquidityChangePercent)}</span></div>
+                        <div class="detail-value"><span class="change ${liqChangeClass}">${formatPercent(liquidityChangePercent)}</span></div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Token Launch Time</div>
@@ -1545,16 +1588,29 @@
                 };
 
                 if (ws.readyState === WebSocket.OPEN) {
+                    // Store buy price and liquidity at the time we initiate the buy
+                    // This ensures we have the correct reference values for price/liquidity change calculations
+                    const buyPrice = token.targetWalletBuyPrice || token.buyPrice || token.currentPrice;
+                    const buyLiquidity = token.currentLiquidity;
+                    
+                    // Store position immediately with pending status (will be confirmed when trade completes)
+                    positions.set(mint, {
+                        hasPosition: true,
+                        buyPrice: buyPrice,
+                        buyLiquidity: buyLiquidity,
+                        buyTime: Date.now(),
+                        pending: true // Mark as pending until trade completes
+                    });
+                    
                     ws.send(JSON.stringify(tradeMessage));
                     console.log('Auto-buy trade requested:', {
                         mint: mint,
                         protocol: token.protocol,
                         targetTokenAmount: token.targetWalletTokenAmount,
-                        targetBuyAmount: token.targetWalletBuyAmount
+                        targetBuyAmount: token.targetWalletBuyAmount,
+                        buyPrice: buyPrice,
+                        buyLiquidity: buyLiquidity
                     });
-
-                    // Position will be set when trade result comes back
-                    // Don't set it here to avoid incorrect data display
 
                     // Show notification
                     const notification = document.createElement('div');
@@ -1866,24 +1922,34 @@
                     
                     if (result.success) {
                         if (result.type === 'buy') {
-                            // Get token data to store buy price
-                            const token = priceData.get(mint);
-                            // Use target wallet buy price as our buy price reference
-                            // This is more accurate than currentPrice which may have changed
-                            const buyPrice = token 
-                                ? (token.targetWalletBuyPrice || token.buyPrice || token.currentPrice)
-                                : null;
+                            // Get existing position (should already exist from autoBuyToken or manual buy)
+                            const existingPosition = positions.get(mint);
                             
-                            // Mark as having position with buy price
-                            positions.set(mint, { 
-                                hasPosition: true,
-                                buyPrice: buyPrice,
-                                buyTime: Date.now()
-                            });
+                            if (existingPosition) {
+                                // Update position to confirm it (remove pending flag)
+                                existingPosition.pending = false;
+                                positions.set(mint, existingPosition);
+                            } else {
+                                // If position doesn't exist (manual buy from UI), create it
+                                const token = priceData.get(mint);
+                                const buyPrice = token 
+                                    ? (token.targetWalletBuyPrice || token.buyPrice || token.currentPrice)
+                                    : null;
+                                const buyLiquidity = token ? token.currentLiquidity : null;
+                                
+                                positions.set(mint, { 
+                                    hasPosition: true,
+                                    buyPrice: buyPrice,
+                                    buyLiquidity: buyLiquidity,
+                                    buyTime: Date.now(),
+                                    pending: false
+                                });
+                            }
+                            
                             console.log('Buy trade successful:', {
                                 mint: mint,
                                 signature: result.signature,
-                                buyPrice: buyPrice
+                                position: positions.get(mint)
                             });
                         } else if (result.type === 'sell') {
                             // Remove position
@@ -1898,6 +1964,12 @@
                         updateTable();
                     } else {
                         console.error('Trade failed:', result.error);
+                        // If trade failed and position is pending, remove it
+                        const position = positions.get(mint);
+                        if (position && position.pending) {
+                            positions.delete(mint);
+                            updateTable();
+                        }
                         // Show error notification
                         const notification = document.createElement('div');
                         notification.style.cssText = `
