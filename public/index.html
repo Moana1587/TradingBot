@@ -1705,6 +1705,11 @@
             const sellPrice = token.currentPrice;
             const sellFee = token.sellFee || 0;
             const sellTransferFee = TRANSFER_FEE;
+            
+            // Calculate sell proceeds: we bought at buyPrice, so we have buyPrice worth of tokens
+            // When selling, we get sellPrice for the same amount, minus fees
+            // Since buyPrice is what we spent on tokens (excluding fees), we get:
+            // sellPrice - sellFee - sellTransferFee
             const totalSellProceeds = sellPrice - sellFee - sellTransferFee;
 
             // Calculate profit/loss including all fees
@@ -1734,10 +1739,25 @@
                 netProfit: netProfit,
                 profitPercent: profitPercent,
                 balanceBefore: previousBalance,
-                balanceAfter: virtualWalletBalance
+                balanceAfter: virtualWalletBalance,
+                balanceChange: totalSellProceeds
             });
+            
+            // Debug: Log if balance didn't change as expected
+            if (Math.abs(virtualWalletBalance - (previousBalance + totalSellProceeds)) > 0.0001) {
+                console.warn('Balance update mismatch!', {
+                    expected: previousBalance + totalSellProceeds,
+                    actual: virtualWalletBalance,
+                    difference: virtualWalletBalance - (previousBalance + totalSellProceeds)
+                });
+            }
 
             // Update displayed balance
+            console.log('Updating virtual balance after sell:', {
+                before: previousBalance,
+                sellProceeds: totalSellProceeds,
+                after: virtualWalletBalance
+            });
             updateVirtualBalance();
 
             // Update table to remove sell button
