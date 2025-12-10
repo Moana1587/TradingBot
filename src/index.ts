@@ -101,8 +101,18 @@ async function main() {
 
     monitor.start();
 
-    // Track target wallet balances periodically
+    // Track bot's own wallet balance and target wallet balances periodically
     const walletBalanceInterval = setInterval(async () => {
+      // Track bot's own wallet balance
+      try {
+        const botBalance = await connectionManager.connection.getBalance(connectionManager.wallet.publicKey);
+        const botBalanceSol = botBalance / LAMPORTS_PER_SOL;
+        webUI.broadcastWalletBalance(connectionManager.wallet.publicKey.toString(), botBalanceSol, true);
+      } catch (error) {
+        logger.debug('Main', `Failed to get bot wallet balance`, error);
+      }
+
+      // Track target wallet balances
       for (const walletAddress of config.targetWallets) {
         try {
           const publicKey = new PublicKey(walletAddress);
@@ -110,7 +120,7 @@ async function main() {
           const balanceSol = balance / LAMPORTS_PER_SOL;
 
           // Broadcast wallet balance update
-          webUI.broadcastWalletBalance(walletAddress, balanceSol);
+          webUI.broadcastWalletBalance(walletAddress, balanceSol, false);
         } catch (error) {
           logger.debug('Main', `Failed to get balance for wallet ${walletAddress.slice(0, 8)}...`, error);
         }

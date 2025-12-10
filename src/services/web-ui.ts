@@ -115,7 +115,7 @@ export class WebUI extends EventEmitter {
         });
     }
 
-    broadcastWalletBalance(wallet: string, balance: number): void {
+    broadcastWalletBalance(wallet: string, balance: number, isBotWallet: boolean = false): void {
         if (this.clients.size === 0) {
             return;
         }
@@ -125,6 +125,7 @@ export class WebUI extends EventEmitter {
             data: {
                 wallet,
                 balance,
+                isBotWallet,
             },
             timestamp: Date.now(),
         });

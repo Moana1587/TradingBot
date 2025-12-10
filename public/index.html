@@ -87,6 +87,16 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
+        .stat-card.balance-chart-card {
+            padding: 10px;
+        }
+
+        .mini-chart-container {
+            position: relative;
+            height: 60px;
+            width: 100%;
+        }
+
         .stat-label {
             font-size: 12px;
             color: #666;
@@ -98,6 +108,19 @@
             font-size: 24px;
             font-weight: bold;
             color: #333;
+        }
+
+        .stat-value.balance-increase {
+            color: #4caf50;
+        }
+
+        .stat-value.balance-decrease {
+            color: #f44336;
+        }
+
+        .balance-arrow {
+            font-size: 20px;
+            margin-left: 5px;
         }
 
         .charts-grid {
@@ -183,8 +206,18 @@
             white-space: nowrap;
         }
 
-        tr:hover {
-            background: #f9f9f9;
+        tbody tr {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover {
+            background: #f0f4ff;
+        }
+
+        tbody tr.selected {
+            background: #e0e7ff;
+            border-left: 3px solid #667eea;
         }
 
         .mint {
@@ -360,6 +393,125 @@
         .table-header-wrapper {
             position: relative;
         }
+
+        .details-btn {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .details-btn:hover {
+            background: #5568d3;
+        }
+
+        .details-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .details-btn:disabled:hover {
+            background: #ccc;
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .modal-close:hover {
+            background: #f0f0f0;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .detail-item {
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+
+        .detail-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .detail-value {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .detail-item.full-width {
+            grid-column: 1 / -1;
+        }
     </style>
 </head>
 
@@ -375,12 +527,14 @@
 
         <div class="stats">
             <div class="stat-card">
-                <div class="stat-label">Tracked Tokens</div>
-                <div class="stat-value" id="trackedCount">0</div>
+                <div class="stat-label">My Wallet Balance</div>
+                <div class="stat-value" id="myWalletBalance">- SOL</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-label">Total Updates</div>
-                <div class="stat-value" id="totalUpdates">0</div>
+            <div class="stat-card balance-chart-card">
+                <div class="stat-label">Balance History</div>
+                <div class="mini-chart-container">
+                    <canvas id="miniBalanceChart"></canvas>
+                </div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Last Update</div>
@@ -391,7 +545,7 @@
         <div class="charts-grid">
             <div class="chart-container">
                 <div class="chart-header">
-                    <div class="chart-title">📈 Price Chart</div>
+                    <div class="chart-title">📈 Price Chart (Original)</div>
                     <select id="chartTokenSelect" class="chart-select">
                         <option value="">Select a token...</option>
                     </select>
@@ -403,13 +557,13 @@
 
             <div class="chart-container">
                 <div class="chart-header">
-                    <div class="chart-title">💰 Target Wallet Balance</div>
-                    <select id="walletBalanceSelect" class="chart-select">
-                        <option value="">Select a wallet...</option>
-                    </select>
+                    <div class="chart-title">📉 Price Chart (C¹ Smooth)</div>
+                    <div class="chart-select" style="color: #666; font-size: 12px; font-style: italic;">
+                        Continuously Differentiable
+                    </div>
                 </div>
                 <div class="chart-wrapper">
-                    <canvas id="walletBalanceChart"></canvas>
+                    <canvas id="smoothPriceChart"></canvas>
                 </div>
             </div>
         </div>
@@ -418,7 +572,10 @@
             <div class="table-header-wrapper">
                 <div class="table-header">
                     <div class="table-title">📊 Token Data</div>
-                    <button class="column-selector-btn" id="columnSelectorBtn">⚙️ Select Columns</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="details-btn" id="showDetailsBtn" onclick="showSelectedTokenDetails()" disabled>📄 Show Details</button>
+                        <button class="column-selector-btn" id="columnSelectorBtn">⚙️ Select Columns</button>
+                    </div>
                 </div>
                 <div class="column-selector-dropdown" id="columnSelectorDropdown">
                     <div class="column-selector-header">
@@ -435,23 +592,13 @@
                 <thead>
                     <tr>
                         <th data-column="mint">Mint</th>
-                        <th data-column="protocol">Protocol</th>
                         <th data-column="currentPrice">Current Price</th>
                         <th data-column="buyPrice">Buy Price</th>
                         <th data-column="priceChange">Price Change</th>
                         <th data-column="currentLiquidity">Current Liquidity</th>
                         <th data-column="liquidityChange">Liquidity Change</th>
-                        <th data-column="tokenLaunchTime">Token Launch Time</th>
                         <th data-column="timeSinceLaunch">Time Since Launch</th>
-                        <th data-column="targetBuyTime">Target Buy Time</th>
-                        <th data-column="targetBuyPrice">Target Buy Price</th>
-                        <th data-column="targetBuyLiquidity">Target Buy Liquidity</th>
-                        <th data-column="balanceBeforeBuy">Balance Before Buy</th>
-                        <th data-column="targetSellTime">Target Sell Time</th>
-                        <th data-column="targetSellPrice">Target Sell Price</th>
-                        <th data-column="targetSellLiquidity">Target Sell Liquidity</th>
-                        <th data-column="balanceAfterSell">Balance After Sell</th>
-                        <th data-column="balanceChange">Balance Change</th>
+                        <th data-column="targetBuyTime">Buy Time</th>
                         <th data-column="buyFee">Buy Fee</th>
                         <th data-column="sellFee">Sell Fee</th>
                         <th data-column="profitLoss">Profit/Loss</th>
@@ -460,13 +607,25 @@
                 </thead>
                 <tbody id="priceTableBody">
                     <tr>
-                        <td colspan="8" class="empty-state">
+                        <td colspan="12" class="empty-state">
                             <div class="empty-state-icon">📊</div>
                             <div>Waiting for price updates...</div>
                         </td>
                     </tr>
                 </tbody>
             </table>
+        </div>
+
+        <!-- Token Details Modal -->
+        <div class="modal-overlay" id="tokenDetailsModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Token Details</div>
+                    <button class="modal-close" onclick="closeTokenDetails()">&times;</button>
+                </div>
+                <div id="tokenDetailsContent"></div>
+            </div>
+        </div>
         </div>
     </div>
 
@@ -475,13 +634,16 @@
         const ws = new WebSocket(`${protocol}//${window.location.hostname}:${window.location.port || 3000}/ws`);
         const priceData = new Map();
         const priceHistory = new Map(); // Store price history for charts: mint -> [{time, price, liquidity}]
-        const walletBalanceHistory = new Map(); // Store wallet balance history: wallet -> [{time, balance}]
         let totalUpdates = 0;
         let chart = null;
-        let walletBalanceChart = null;
+        let smoothPriceChart = null;
+        let miniBalanceChart = null;
         let selectedMint = null;
-        let selectedWallet = null;
+        let myWalletBalance = null; // Store bot's own wallet balance
+        let previousWalletBalance = null; // Store previous balance for comparison
+        let myWalletBalanceHistory = []; // Store bot's wallet balance history for mini chart
         const maxHistoryPoints = 100; // Keep last 100 data points
+        const maxMiniChartPoints = 20; // Keep last 20 points for mini chart
 
         function updateStatus(connected) {
             const indicator = document.getElementById('statusIndicator');
@@ -545,13 +707,102 @@
             }
         }
 
+        // ========== C¹ Smoothing Functions ==========
+        
+        // Cubic Hermite Spline interpolation for C¹ continuity
+        function cubicHermiteInterpolate(p0, p1, m0, m1, t) {
+            const t2 = t * t;
+            const t3 = t2 * t;
+            
+            // Hermite basis functions
+            const h00 = 2 * t3 - 3 * t2 + 1;
+            const h10 = t3 - 2 * t2 + t;
+            const h01 = -2 * t3 + 3 * t2;
+            const h11 = t3 - t2;
+            
+            return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
+        }
+
+        // Calculate tangents using finite differences (Catmull-Rom style)
+        function calculateTangent(prev, next, tension = 0.5) {
+            return tension * (next - prev);
+        }
+
+        // Smooth price data to make it C¹ continuous
+        function smoothPriceData(dataPoints, samplesPerSegment = 5) {
+            if (dataPoints.length < 2) {
+                return dataPoints;
+            }
+
+            const smoothed = [];
+            
+            for (let i = 0; i < dataPoints.length - 1; i++) {
+                const p0 = dataPoints[i];
+                const p1 = dataPoints[i + 1];
+                
+                // Calculate tangents for C¹ continuity
+                let m0, m1;
+                
+                if (i === 0) {
+                    // First point: use forward difference
+                    m0 = p1 - p0;
+                } else {
+                    // Use centered difference
+                    m0 = calculateTangent(dataPoints[i - 1], p1);
+                }
+                
+                if (i === dataPoints.length - 2) {
+                    // Last segment: use backward difference
+                    m1 = p1 - p0;
+                } else {
+                    // Use centered difference
+                    m1 = calculateTangent(p0, dataPoints[i + 2]);
+                }
+                
+                // Interpolate between p0 and p1
+                for (let j = 0; j < samplesPerSegment; j++) {
+                    const t = j / samplesPerSegment;
+                    const interpolated = cubicHermiteInterpolate(p0, p1, m0, m1, t);
+                    smoothed.push(interpolated);
+                }
+            }
+            
+            // Add the last point
+            smoothed.push(dataPoints[dataPoints.length - 1]);
+            
+            return smoothed;
+        }
+
+        // Generate smooth labels for the interpolated data
+        function generateSmoothLabels(originalLabels, samplesPerSegment = 5) {
+            if (originalLabels.length < 2) {
+                return originalLabels;
+            }
+
+            const smoothLabels = [];
+            
+            for (let i = 0; i < originalLabels.length - 1; i++) {
+                for (let j = 0; j < samplesPerSegment; j++) {
+                    if (j === 0) {
+                        smoothLabels.push(originalLabels[i]);
+                    } else {
+                        smoothLabels.push(''); // Empty labels for interpolated points
+                    }
+                }
+            }
+            
+            smoothLabels.push(originalLabels[originalLabels.length - 1]);
+            
+            return smoothLabels;
+        }
+
         function updateTable() {
             const tbody = document.getElementById('priceTableBody');
 
             if (priceData.size === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="22" class="empty-state">
+                        <td colspan="12" class="empty-state">
                             <div class="empty-state-icon">📊</div>
                             <div>Waiting for price updates...</div>
                         </td>
@@ -573,39 +824,16 @@
                         ? `${token.profit >= 0 ? '+' : ''}${formatPrice(token.profit)} SOL`
                         : '-';
 
-                    // Calculate balance change: balance before buy - balance after sell
-                    // Positive = balance decreased (loss), Negative = balance increased (gain)
-                    let balanceChange = null;
-                    let balanceChangeClass = '';
-                    let balanceChangeDisplay = '-';
-                    if (token.targetWalletBalanceBeforeBuy !== undefined && token.targetWalletBalanceAfterSell !== undefined) {
-                        balanceChange = token.targetWalletBalanceAfterSell - token.targetWalletBalanceBeforeBuy;
-                        // Positive change means balance decreased (loss) = red, Negative means balance increased (gain) = green
-                        balanceChangeClass = balanceChange >= 0 ? 'positive' : 'negative';
-                        const sign = balanceChange >= 0 ? '+' : '-';
-                        balanceChangeDisplay = `${sign}${formatLiquidity(balanceChange)} SOL`;
-                    }
-
                     return `
-                        <tr>
+                        <tr data-mint="${token.mint}" class="${selectedMint === token.mint ? 'selected' : ''}" onclick="selectTokenFromTable('${token.mint}')">
                             <td data-column="mint" class="mint">${token.mint.slice(0, 8)}...</td>
-                            <td data-column="protocol"><span class="protocol ${token.protocol}">${token.protocol}</span></td>
                             <td data-column="currentPrice" class="price">${formatPrice(token.currentPrice)} SOL</td>
                             <td data-column="buyPrice" class="price">${formatPrice(token.buyPrice)} SOL</td>
                             <td data-column="priceChange"><span class="change ${priceChangeClass}">${formatPercent(token.priceChangePercent)}</span></td>
                             <td data-column="currentLiquidity" class="liquidity">${formatLiquidity(token.currentLiquidity)} SOL</td>
                             <td data-column="liquidityChange"><span class="change ${liqChangeClass}">${formatPercent(token.liquidityChangePercent)}</span></td>
-                            <td data-column="tokenLaunchTime">${token.tokenLaunchTime ? formatDateTime(token.tokenLaunchTime) : '-'}</td>
                             <td data-column="timeSinceLaunch">${token.timeSinceLaunch !== undefined ? formatTimeSinceLaunch(token.timeSinceLaunch) : '-'}</td>
                             <td data-column="targetBuyTime">${formatDateTime(token.targetWalletBuyTime)}</td>
-                            <td data-column="targetBuyPrice" class="price">${formatPrice(token.targetWalletBuyPrice)} SOL</td>
-                            <td data-column="targetBuyLiquidity" class="liquidity">${token.targetWalletBuyLiquidity !== undefined ? formatLiquidity(token.targetWalletBuyLiquidity) + ' SOL' : '-'}</td>
-                            <td data-column="balanceBeforeBuy" class="liquidity">${token.targetWalletBalanceBeforeBuy !== undefined ? formatLiquidity(token.targetWalletBalanceBeforeBuy) + ' SOL' : '-'}</td>
-                            <td data-column="targetSellTime">${token.targetWalletSellTime ? formatDateTime(token.targetWalletSellTime) : '-'}</td>
-                            <td data-column="targetSellPrice" class="price">${token.targetWalletSellPrice ? formatPrice(token.targetWalletSellPrice) + ' SOL' : '-'}</td>
-                            <td data-column="targetSellLiquidity" class="liquidity">${token.targetWalletSellLiquidity !== undefined ? formatLiquidity(token.targetWalletSellLiquidity) + ' SOL' : '-'}</td>
-                            <td data-column="balanceAfterSell" class="liquidity">${token.targetWalletBalanceAfterSell !== undefined ? formatLiquidity(token.targetWalletBalanceAfterSell) + ' SOL' : '-'}</td>
-                            <td data-column="balanceChange"><span class="change ${balanceChangeClass}">${balanceChangeDisplay}</span></td>
                             <td data-column="buyFee" class="price">${token.buyFee !== undefined ? formatPrice(token.buyFee) + ' SOL' : '-'}</td>
                             <td data-column="sellFee" class="price">${token.sellFee !== undefined ? formatPrice(token.sellFee) + ' SOL' : '-'}</td>
                             <td data-column="profitLoss"><span class="change ${profitClass}">${profitDisplay}</span></td>
@@ -617,9 +845,170 @@
             tbody.innerHTML = rows.join('');
         }
 
+        function showSelectedTokenDetails() {
+            if (selectedMint) {
+                showTokenDetails(selectedMint);
+            }
+        }
+
+        function showTokenDetails(mint) {
+            const token = priceData.get(mint);
+            if (!token) return;
+
+            const priceChangeClass = token.priceChangePercent >= 0 ? 'positive' : 'negative';
+            const liqChangeClass = token.liquidityChangePercent >= 0 ? 'positive' : 'negative';
+            const profitClass = token.profit !== undefined && token.profit !== null
+                ? (token.profit >= 0 ? 'positive' : 'negative')
+                : '';
+            const profitDisplay = token.profit !== undefined && token.profit !== null
+                ? `${token.profit >= 0 ? '+' : ''}${formatPrice(token.profit)} SOL`
+                : '-';
+
+            // Calculate balance change
+            let balanceChange = null;
+            let balanceChangeClass = '';
+            let balanceChangeDisplay = '-';
+            if (token.targetWalletBalanceBeforeBuy !== undefined && token.targetWalletBalanceAfterSell !== undefined) {
+                balanceChange = token.targetWalletBalanceAfterSell - token.targetWalletBalanceBeforeBuy;
+                balanceChangeClass = balanceChange >= 0 ? 'positive' : 'negative';
+                const sign = balanceChange >= 0 ? '+' : '';
+                balanceChangeDisplay = `${sign}${formatLiquidity(balanceChange)} SOL`;
+            }
+
+            const detailsHTML = `
+                <div class="detail-grid">
+                    <div class="detail-item full-width">
+                        <div class="detail-label">Token Mint Address</div>
+                        <div class="detail-value mint">${token.mint}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Protocol</div>
+                        <div class="detail-value"><span class="protocol ${token.protocol}">${token.protocol}</span></div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Current Price</div>
+                        <div class="detail-value">${formatPrice(token.currentPrice)} SOL</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Buy Price</div>
+                        <div class="detail-value">${formatPrice(token.buyPrice)} SOL</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Price Change</div>
+                        <div class="detail-value"><span class="change ${priceChangeClass}">${formatPercent(token.priceChangePercent)}</span></div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Current Liquidity</div>
+                        <div class="detail-value">${formatLiquidity(token.currentLiquidity)} SOL</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Liquidity Change</div>
+                        <div class="detail-value"><span class="change ${liqChangeClass}">${formatPercent(token.liquidityChangePercent)}</span></div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Token Launch Time</div>
+                        <div class="detail-value">${token.tokenLaunchTime ? formatDateTime(token.tokenLaunchTime) : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Time Since Launch</div>
+                        <div class="detail-value">${token.timeSinceLaunch !== undefined ? formatTimeSinceLaunch(token.timeSinceLaunch) : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Target Buy Time</div>
+                        <div class="detail-value">${formatDateTime(token.targetWalletBuyTime)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Target Buy Price</div>
+                        <div class="detail-value">${formatPrice(token.targetWalletBuyPrice)} SOL</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Target Buy Liquidity</div>
+                        <div class="detail-value">${token.targetWalletBuyLiquidity !== undefined ? formatLiquidity(token.targetWalletBuyLiquidity) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Balance Before Buy</div>
+                        <div class="detail-value">${token.targetWalletBalanceBeforeBuy !== undefined ? formatLiquidity(token.targetWalletBalanceBeforeBuy) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Target Sell Time</div>
+                        <div class="detail-value">${token.targetWalletSellTime ? formatDateTime(token.targetWalletSellTime) : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Target Sell Price</div>
+                        <div class="detail-value">${token.targetWalletSellPrice ? formatPrice(token.targetWalletSellPrice) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Target Sell Liquidity</div>
+                        <div class="detail-value">${token.targetWalletSellLiquidity !== undefined ? formatLiquidity(token.targetWalletSellLiquidity) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Balance After Sell</div>
+                        <div class="detail-value">${token.targetWalletBalanceAfterSell !== undefined ? formatLiquidity(token.targetWalletBalanceAfterSell) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Balance Change</div>
+                        <div class="detail-value"><span class="change ${balanceChangeClass}">${balanceChangeDisplay}</span></div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Buy Fee</div>
+                        <div class="detail-value">${token.buyFee !== undefined ? formatPrice(token.buyFee) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Sell Fee</div>
+                        <div class="detail-value">${token.sellFee !== undefined ? formatPrice(token.sellFee) + ' SOL' : '-'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Profit/Loss</div>
+                        <div class="detail-value"><span class="change ${profitClass}">${profitDisplay}</span></div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Last Update</div>
+                        <div class="detail-value">${formatTime(token.lastUpdate)}</div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('tokenDetailsContent').innerHTML = detailsHTML;
+            document.getElementById('tokenDetailsModal').classList.add('show');
+        }
+
+        function closeTokenDetails() {
+            document.getElementById('tokenDetailsModal').classList.remove('show');
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', (e) => {
+            const modal = document.getElementById('tokenDetailsModal');
+            if (e.target === modal) {
+                closeTokenDetails();
+            }
+        });
+
         function updateStats() {
-            document.getElementById('trackedCount').textContent = priceData.size;
-            document.getElementById('totalUpdates').textContent = totalUpdates;
+            // Update bot's wallet balance
+            const balanceElement = document.getElementById('myWalletBalance');
+            if (myWalletBalance !== null) {
+                let arrow = '';
+                let balanceClass = '';
+                
+                // Compare with previous balance
+                if (previousWalletBalance !== null) {
+                    if (myWalletBalance > previousWalletBalance) {
+                        arrow = ' <span class="balance-arrow">↑</span>';
+                        balanceClass = 'balance-increase';
+                    } else if (myWalletBalance < previousWalletBalance) {
+                        arrow = ' <span class="balance-arrow">↓</span>';
+                        balanceClass = 'balance-decrease';
+                    }
+                }
+                
+                // Update class
+                balanceElement.className = `stat-value ${balanceClass}`;
+                balanceElement.innerHTML = `${formatLiquidity(myWalletBalance)} SOL${arrow}`;
+            } else {
+                balanceElement.className = 'stat-value';
+                balanceElement.textContent = '- SOL';
+            }
 
             if (priceData.size > 0) {
                 const latest = Array.from(priceData.values())
@@ -712,40 +1101,77 @@
             });
         }
 
-        function initializeWalletBalanceChart() {
-            const ctx = document.getElementById('walletBalanceChart').getContext('2d');
-            walletBalanceChart = new Chart(ctx, {
+        function initializeSmoothPriceChart() {
+            const ctx = document.getElementById('smoothPriceChart').getContext('2d');
+            smoothPriceChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: [],
                     datasets: [
                         {
-                            label: 'Wallet Balance',
+                            label: 'Smooth Price (C¹)',
                             data: [],
-                            borderColor: '#f59e0b',
-                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                            borderWidth: 2,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 3,
                             fill: true,
-                            tension: 0.4,
-                            pointRadius: 3,
-                            pointHoverRadius: 5,
+                            tension: 0,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointBackgroundColor: '#10b981',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                        },
+                        {
+                            label: 'Buy Price',
+                            data: [],
+                            borderColor: '#4caf50',
+                            backgroundColor: 'rgba(76, 175, 80, 0.05)',
+                            borderWidth: 2,
+                            borderDash: [8, 4],
+                            fill: false,
+                            tension: 0,
+                            pointRadius: 0,
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: {
+                        duration: 750,
+                        easing: 'easeInOutQuart'
+                    },
                     plugins: {
                         legend: {
                             display: true,
                             position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: {
+                                    size: 12,
+                                    weight: '500'
+                                }
+                            }
                         },
                         tooltip: {
+                            enabled: true,
                             mode: 'index',
                             intersect: false,
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            cornerRadius: 8,
+                            filter: function(tooltipItem) {
+                                // Only show tooltip on actual data points (not interpolated)
+                                return tooltipItem.label !== '';
+                            },
                             callbacks: {
                                 label: function (context) {
-                                    return context.dataset.label + ': ' + formatPrice(context.parsed.y) + ' SOL';
+                                    if (context.parsed.y !== null && context.parsed.y !== undefined) {
+                                        return context.dataset.label + ': ' + formatPrice(context.parsed.y) + ' SOL';
+                                    }
+                                    return '';
                                 }
                             }
                         }
@@ -755,24 +1181,109 @@
                             display: true,
                             title: {
                                 display: true,
-                                text: 'Time'
+                                text: 'Time',
+                                font: {
+                                    size: 13,
+                                    weight: '600'
+                                }
                             },
                             ticks: {
                                 maxRotation: 45,
-                                minRotation: 45
+                                minRotation: 45,
+                                font: {
+                                    size: 11
+                                },
+                                autoSkip: true,
+                                maxTicksLimit: 15
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
                             }
                         },
                         y: {
                             display: true,
                             title: {
                                 display: true,
-                                text: 'Balance (SOL)'
+                                text: 'Price (SOL)',
+                                font: {
+                                    size: 13,
+                                    weight: '600'
+                                }
                             },
                             ticks: {
                                 callback: function (value) {
                                     return formatPrice(value);
+                                },
+                                font: {
+                                    size: 11
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    },
+                    elements: {
+                        line: {
+                            borderJoinStyle: 'round',
+                            borderCapStyle: 'round'
+                        }
+                    }
+                }
+            });
+        }
+
+        function initializeMiniBalanceChart() {
+            const ctx = document.getElementById('miniBalanceChart').getContext('2d');
+            miniBalanceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            data: [],
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.2)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            pointHoverRadius: 0,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false,
+                        },
+                        tooltip: {
+                            enabled: true,
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function (context) {
+                                    return formatLiquidity(context.parsed.y) + ' SOL';
+                                },
+                                title: function () {
+                                    return '';
                                 }
                             }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: false,
+                        },
+                        y: {
+                            display: false,
                         }
                     },
                     interaction: {
@@ -782,6 +1293,19 @@
                     }
                 }
             });
+        }
+
+        function updateMiniBalanceChart() {
+            if (!miniBalanceChart || myWalletBalanceHistory.length === 0) {
+                return;
+            }
+
+            const labels = myWalletBalanceHistory.map((_, index) => index.toString());
+            const balances = myWalletBalanceHistory.map(point => point.balance);
+
+            miniBalanceChart.data.labels = labels;
+            miniBalanceChart.data.datasets[0].data = balances;
+            miniBalanceChart.update('none');
         }
 
         function getLatestToken() {
@@ -828,12 +1352,9 @@
                 select.appendChild(option);
             });
 
-            // Restore selection if it still exists, otherwise auto-select latest
+            // Restore selection if it still exists
             if (currentValue && priceData.has(currentValue)) {
                 select.value = currentValue;
-            } else {
-                // Auto-select the latest token
-                autoSelectLatestToken();
             }
         }
 
@@ -865,19 +1386,83 @@
             chart.update('none'); // 'none' mode for smooth updates
         }
 
+        function updateSmoothPriceChart() {
+            if (!smoothPriceChart || !selectedMint || !priceHistory.has(selectedMint)) {
+                return;
+            }
+
+            const history = priceHistory.get(selectedMint);
+            const token = priceData.get(selectedMint);
+
+            if (!token || history.length === 0) {
+                return;
+            }
+
+            // Prepare original data
+            const originalLabels = history.map(point => {
+                const date = new Date(point.time);
+                return date.toLocaleTimeString();
+            });
+
+            const originalPrices = history.map(point => point.price);
+
+            // Apply C¹ smoothing to price data
+            const samplesPerSegment = 5; // Interpolate 5 points between each data point
+            const smoothPrices = smoothPriceData(originalPrices, samplesPerSegment);
+            const smoothLabels = generateSmoothLabels(originalLabels, samplesPerSegment);
+
+            // Create smooth buy price line
+            const smoothBuyPrices = new Array(smoothPrices.length).fill(token.buyPrice);
+
+            // Update chart with smooth data
+            smoothPriceChart.data.labels = smoothLabels;
+            smoothPriceChart.data.datasets[0].data = smoothPrices;
+            smoothPriceChart.data.datasets[1].data = smoothBuyPrices;
+            smoothPriceChart.update('none'); // 'none' mode for smooth updates
+        }
+
         function selectTokenForChart(mint) {
             selectedMint = mint;
             if (mint && priceHistory.has(mint)) {
                 updateChart();
+                updateSmoothPriceChart();
             } else {
-                // Clear chart if no data
+                // Clear charts if no data
                 if (chart) {
                     chart.data.labels = [];
                     chart.data.datasets[0].data = [];
                     chart.data.datasets[1].data = [];
                     chart.update();
                 }
+                if (smoothPriceChart) {
+                    smoothPriceChart.data.labels = [];
+                    smoothPriceChart.data.datasets[0].data = [];
+                    smoothPriceChart.data.datasets[1].data = [];
+                    smoothPriceChart.update();
+                }
             }
+        }
+
+        function selectTokenFromTable(mint) {
+            selectedMint = mint;
+            
+            // Update dropdown to match selection
+            const select = document.getElementById('chartTokenSelect');
+            if (select) {
+                select.value = mint;
+            }
+            
+            // Enable/disable Show Details button
+            const showDetailsBtn = document.getElementById('showDetailsBtn');
+            if (showDetailsBtn) {
+                showDetailsBtn.disabled = !mint;
+            }
+            
+            // Update charts
+            selectTokenForChart(mint);
+            
+            // Update table to highlight selected row
+            updateTable();
         }
 
         ws.onopen = () => {
@@ -933,129 +1518,50 @@
                         history.shift();
                     }
 
-                    // If this is a new token, auto-select it for the chart (force selection)
-                    if (isNewToken) {
-                        autoSelectLatestToken(true);
-                    }
-
-                    // Update chart if this is the selected token
+                    // Update charts if this is the selected token
                     if (selectedMint === data.mint) {
                         updateChart();
+                        updateSmoothPriceChart();
                     }
 
                     updateTable();
                     updateStats();
                     updateChartSelect();
-                    updateWalletBalanceSelect();
                 } else if (message.type === 'walletBalance') {
                     const data = message.data;
                     const timestamp = message.timestamp || Date.now();
-                    const wallet = data.wallet;
                     const balance = data.balance;
+                    const isBotWallet = data.isBotWallet;
 
-                    // Update wallet balance history
-                    if (!walletBalanceHistory.has(wallet)) {
-                        walletBalanceHistory.set(wallet, []);
+                    // If this is the bot's wallet, update the stat display
+                    if (isBotWallet) {
+                        // Store previous balance before updating
+                        previousWalletBalance = myWalletBalance;
+                        myWalletBalance = balance;
+                        
+                        // Update mini chart history
+                        myWalletBalanceHistory.push({
+                            time: timestamp,
+                            balance: balance
+                        });
+                        
+                        // Keep only last N points for mini chart
+                        if (myWalletBalanceHistory.length > maxMiniChartPoints) {
+                            myWalletBalanceHistory.shift();
+                        }
+                        
+                        updateStats();
+                        updateMiniBalanceChart();
                     }
-                    const history = walletBalanceHistory.get(wallet);
-                    history.push({
-                        time: timestamp,
-                        balance: balance
-                    });
-
-                    // Keep only last N points
-                    if (history.length > maxHistoryPoints) {
-                        history.shift();
-                    }
-
-                    // Update chart if this is the selected wallet
-                    if (selectedWallet === wallet) {
-                        updateWalletBalanceChart();
-                    }
-
-                    updateWalletBalanceSelect();
                 }
             } catch (error) {
                 console.error('Error parsing message:', error);
             }
         };
 
-        function updateWalletBalanceSelect() {
-            const select = document.getElementById('walletBalanceSelect');
-            const currentValue = select.value;
-            const wallets = new Set();
-
-            // Collect unique wallets from price data
-            Array.from(priceData.values()).forEach(token => {
-                if (token.targetWallet) {
-                    wallets.add(token.targetWallet);
-                }
-            });
-
-            // Clear existing options except the first one
-            select.innerHTML = '<option value="">Select a wallet to view balance...</option>';
-
-            // Add all unique wallets
-            Array.from(wallets).forEach(wallet => {
-                const option = document.createElement('option');
-                option.value = wallet;
-                option.textContent = `${wallet.slice(0, 8)}...`;
-                select.appendChild(option);
-            });
-
-            // Restore selection if it still exists
-            if (currentValue && wallets.has(currentValue)) {
-                select.value = currentValue;
-            }
-        }
-
-        function updateWalletBalanceChart() {
-            if (!walletBalanceChart || !selectedWallet || !walletBalanceHistory.has(selectedWallet)) {
-                return;
-            }
-
-            const history = walletBalanceHistory.get(selectedWallet);
-
-            if (!history || history.length === 0) {
-                return;
-            }
-
-            // Prepare data
-            const labels = history.map(point => {
-                const date = new Date(point.time);
-                return date.toLocaleTimeString();
-            });
-
-            const balances = history.map(point => point.balance);
-
-            // Update chart
-            walletBalanceChart.data.labels = labels;
-            walletBalanceChart.data.datasets[0].data = balances;
-            walletBalanceChart.update('none');
-        }
-
-        function selectWalletForChart(wallet) {
-            selectedWallet = wallet;
-            if (wallet && walletBalanceHistory.has(wallet)) {
-                updateWalletBalanceChart();
-            } else {
-                // Clear chart if no data
-                if (walletBalanceChart) {
-                    walletBalanceChart.data.labels = [];
-                    walletBalanceChart.data.datasets[0].data = [];
-                    walletBalanceChart.update();
-                }
-            }
-        }
-
         // Chart token selection handler
         document.getElementById('chartTokenSelect').addEventListener('change', (e) => {
             selectTokenForChart(e.target.value);
-        });
-
-        // Wallet balance chart selection handler
-        document.getElementById('walletBalanceSelect').addEventListener('change', (e) => {
-            selectWalletForChart(e.target.value);
         });
 
         // Column selection functionality
@@ -1089,10 +1595,15 @@
             if (saved) {
                 return JSON.parse(saved);
             }
-            // Default: all columns visible
+            // Default: only show specified columns
+            const defaultVisible = [
+                'mint', 'currentPrice', 'buyPrice', 'priceChange', 
+                'currentLiquidity', 'liquidityChange', 'timeSinceLaunch', 
+                'targetBuyTime', 'buyFee', 'sellFee', 'profitLoss', 'lastUpdate'
+            ];
             const defaultVisibility = {};
             columnDefinitions.forEach(col => {
-                defaultVisibility[col.key] = true;
+                defaultVisibility[col.key] = defaultVisible.includes(col.key);
             });
             return defaultVisibility;
         }
@@ -1193,14 +1704,10 @@
 
         // Initial render
         initializeChart();
-        initializeWalletBalanceChart();
+        initializeSmoothPriceChart();
+        initializeMiniBalanceChart();
         updateTable();
         updateStats();
-
-        // Auto-select latest token on initial load
-        setTimeout(() => {
-            autoSelectLatestToken();
-        }, 500);
     </script>
 </body>
 
