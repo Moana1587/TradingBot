@@ -1852,6 +1852,11 @@
                         history.shift();
                     }
 
+                    // Automatically focus on newly added token (after price history is set up)
+                    if (isNewToken) {
+                        selectTokenFromTable(data.mint);
+                    }
+
                     // Update charts if this is the selected token
                     if (selectedMint === data.mint) {
                         updateChart();
