@@ -1009,21 +1009,19 @@
         });
 
         function updateStats() {
-            // Update bot's wallet balance (use virtual balance for testing)
+            // Always show virtual balance (for testing buying/selling)
             const balanceElement = document.getElementById('myWalletBalance');
-            // Use virtual balance if available, otherwise use server balance
-            const displayBalance = (myWalletBalance !== null && myWalletBalance !== undefined) ? myWalletBalance : virtualWalletBalance;
             
-            if (displayBalance !== null && displayBalance !== undefined) {
+            if (virtualWalletBalance !== null && virtualWalletBalance !== undefined) {
                 let arrow = '';
                 let balanceClass = '';
                 
-                // Compare with previous balance
+                // Compare with previous virtual balance
                 if (previousWalletBalance !== null) {
-                    if (displayBalance > previousWalletBalance) {
+                    if (virtualWalletBalance > previousWalletBalance) {
                         arrow = ' <span class="balance-arrow">↑</span>';
                         balanceClass = 'balance-increase';
-                    } else if (displayBalance < previousWalletBalance) {
+                    } else if (virtualWalletBalance < previousWalletBalance) {
                         arrow = ' <span class="balance-arrow">↓</span>';
                         balanceClass = 'balance-decrease';
                     }
@@ -1031,7 +1029,7 @@
                 
                 // Update class
                 balanceElement.className = `stat-value ${balanceClass}`;
-                balanceElement.innerHTML = `${formatLiquidity(displayBalance)} SOL${arrow} <span style="font-size: 12px; color: #999; font-weight: normal;">(Virtual)</span>`;
+                balanceElement.innerHTML = `${formatLiquidity(virtualWalletBalance)} SOL${arrow} <span style="font-size: 12px; color: #999; font-weight: normal;">(Virtual)</span>`;
             } else {
                 balanceElement.className = 'stat-value';
                 balanceElement.textContent = '- SOL';
@@ -1503,12 +1501,10 @@
                     startBuyingBtn.textContent = '⏹️ Stop Buying';
                     startBuyingBtn.style.background = '#f44336';
                     console.log('Auto-buying started - Following target wallet automatically');
-                    alert('✅ Auto-Buying Started!\n\nBot will automatically buy tokens that:\n• Target wallet buys\n• Have liquidity > 10 SOL\n\nClick "Stop Buying" to disable auto-buying.');
                 } else {
                     startBuyingBtn.textContent = '🛒 Start Buying';
                     startBuyingBtn.style.background = '#667eea';
                     console.log('Auto-buying stopped');
-                    alert('⏹️ Auto-Buying Stopped!\n\nNo more automatic purchases will be made.');
                 }
             }
         }
@@ -1542,6 +1538,9 @@
             // Deduct from virtual wallet
             const previousBalance = virtualWalletBalance;
             virtualWalletBalance -= totalBuyCost;
+            
+            // Store previous balance for comparison display
+            previousWalletBalance = previousBalance;
 
             // Virtual buy - mark token as bought
             boughtTokens.set(mint, {
@@ -1606,13 +1605,13 @@
 
         function sellToken(mint) {
             if (!boughtTokens.has(mint)) {
-                alert('Token is not in your holdings');
+                console.log('Token is not in your holdings');
                 return;
             }
 
             const token = priceData.get(mint);
             if (!token) {
-                alert('Token data not found');
+                console.log('Token data not found');
                 return;
             }
 
@@ -1634,6 +1633,9 @@
             // Add to virtual wallet
             const previousBalance = virtualWalletBalance;
             virtualWalletBalance += totalSellProceeds;
+            
+            // Store previous balance for comparison display
+            previousWalletBalance = previousBalance;
 
             // Virtual sell - remove from bought tokens
             boughtTokens.delete(mint);
@@ -1657,20 +1659,13 @@
             // Update displayed balance
             updateVirtualBalance();
 
-            const profitClass = netProfit >= 0 ? 'positive' : 'negative';
-            const profitSign = netProfit >= 0 ? '+' : '';
-
-            alert(`💰 Virtual Sell Executed!\n\nToken: ${mint.slice(0, 8)}...\n\nBuy Details:\n  Price: ${formatPrice(buyPrice)} SOL\n  Buy Fee: ${formatPrice(buyFee)} SOL\n  Transfer Fee: ${formatPrice(buyTransferFee)} SOL\n  Total Cost: ${formatPrice(totalBuyCost)} SOL\n\nSell Details:\n  Price: ${formatPrice(sellPrice)} SOL\n  Sell Fee: ${formatPrice(sellFee)} SOL\n  Transfer Fee: ${formatPrice(sellTransferFee)} SOL\n  Total Proceeds: ${formatPrice(totalSellProceeds)} SOL\n\nNet Profit/Loss: ${profitSign}${formatPrice(netProfit)} SOL (${profitSign}${profitPercent.toFixed(2)}%)\n\nNew Balance: ${formatLiquidity(virtualWalletBalance)} SOL`);
-
             // Update table to remove sell button
             updateTable();
         }
 
         function updateVirtualBalance() {
             // Update the displayed wallet balance with virtual balance
-            // Store previous for comparison
-            previousWalletBalance = myWalletBalance;
-            myWalletBalance = virtualWalletBalance;
+            // Note: previousWalletBalance should be set before calling this function
             updateStats();
             
             // Also update mini chart history
@@ -1766,25 +1761,12 @@
                     const balance = data.balance;
                     const isBotWallet = data.isBotWallet;
 
-                    // If this is the bot's wallet, update the stat display
+                    // If this is the bot's wallet, store it but don't display it
+                    // We always show virtual balance for testing buying/selling
                     if (isBotWallet) {
-                        // Store previous balance before updating
-                        previousWalletBalance = myWalletBalance;
+                        // Store the real balance but don't use it for display
                         myWalletBalance = balance;
-                        
-                        // Update mini chart history
-                        myWalletBalanceHistory.push({
-                            time: timestamp,
-                            balance: balance
-                        });
-                        
-                        // Keep only last N points for mini chart
-                        if (myWalletBalanceHistory.length > maxMiniChartPoints) {
-                            myWalletBalanceHistory.shift();
-                        }
-                        
-                        updateStats();
-                        updateMiniBalanceChart();
+                        // Don't update stats or mini chart - we use virtual balance instead
                     }
                 }
             } catch (error) {
@@ -1940,8 +1922,14 @@
         initializeSmoothPriceChart();
         initializeMiniBalanceChart();
         // Initialize virtual balance display
-        myWalletBalance = virtualWalletBalance;
+        previousWalletBalance = virtualWalletBalance;
         updateStats();
+        // Initialize mini chart with initial balance
+        myWalletBalanceHistory.push({
+            time: Date.now(),
+            balance: virtualWalletBalance
+        });
+        updateMiniBalanceChart();
         updateTable();
     </script>
 </body>
