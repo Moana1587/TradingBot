@@ -812,7 +812,7 @@
             }
 
             const rows = Array.from(priceData.values())
-                .sort((a, b) => b.targetWalletBuyTime - a.targetWalletBuyTime)
+                .sort((a, b) => (b.firstSeenTimestamp || 0) - (a.firstSeenTimestamp || 0))
                 .map(token => {
                     const priceChangeClass = token.priceChangePercent >= 0 ? 'positive' : 'negative';
                     const liqChangeClass = token.liquidityChangePercent >= 0 ? 'positive' : 'negative';
@@ -1496,10 +1496,14 @@
                     // Check if this is a new token (not in priceData yet)
                     const isNewToken = !priceData.has(data.mint);
 
-                    // Update price data
+                    // Get existing token data if it exists
+                    const existingToken = priceData.get(data.mint);
+
+                    // Update price data, preserving firstSeenTimestamp if it exists
                     priceData.set(data.mint, {
                         ...data,
-                        lastUpdate: timestamp
+                        lastUpdate: timestamp,
+                        firstSeenTimestamp: existingToken?.firstSeenTimestamp || timestamp
                     });
 
                     // Update price history
