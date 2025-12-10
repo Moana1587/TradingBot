@@ -49,9 +49,10 @@ export class PositionManager {
 
       // Calculate proportional cost basis reduction
       // Use bigint arithmetic to avoid precision loss
-      const costBasisReduction = position.tokenBalance > 0n
-        ? (position.totalCostBasis * event.tokenAmount) / position.tokenBalance
-        : position.totalCostBasis;
+      const costBasisReduction =
+        position.tokenBalance > 0n
+          ? (position.totalCostBasis * event.tokenAmount) / position.tokenBalance
+          : position.totalCostBasis;
 
       if (position.tokenBalance <= event.tokenAmount) {
         // Close position

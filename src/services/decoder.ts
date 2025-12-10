@@ -193,7 +193,12 @@ export class TransactionDecoder {
           if (verbose) {
             logger.debug('TransactionDecoder', 'Found PumpAMM main instruction');
           }
-          const event = this.decodePumpAmmInstruction(ix, tx.accountKeys, targetWalletsSet, verbose);
+          const event = this.decodePumpAmmInstruction(
+            ix,
+            tx.accountKeys,
+            targetWalletsSet,
+            verbose,
+          );
           if (event) {
             events.push(event);
           }

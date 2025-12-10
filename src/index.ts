@@ -68,10 +68,10 @@ async function main() {
       logger.info(
         'Main',
         `💰 Price Update: ${event.mint.slice(0, 8)}... | ` +
-        `Current: ${formatPrice(event.currentPrice)} SOL | ` +
-        `Buy: ${formatPrice(event.buyPrice)} SOL | ` +
-        `Change: ${changeSign}${event.priceChangePercent.toFixed(2)}% | ` +
-        `Liquidity: ${event.currentLiquidity.toFixed(4)} SOL (${liqChangeSign}${event.liquidityChangePercent.toFixed(2)}%)`,
+          `Current: ${formatPrice(event.currentPrice)} SOL | ` +
+          `Buy: ${formatPrice(event.buyPrice)} SOL | ` +
+          `Change: ${changeSign}${event.priceChangePercent.toFixed(2)}% | ` +
+          `Liquidity: ${event.currentLiquidity.toFixed(4)} SOL (${liqChangeSign}${event.liquidityChangePercent.toFixed(2)}%)`,
       );
 
       // Broadcast to web UI
@@ -111,7 +111,11 @@ async function main() {
           const solSpent = Number(event.solAmount) / LAMPORTS_PER_SOL;
           balanceBeforeBuy = currentBalanceSol + solSpent; // Add back the SOL spent to get balance before buy
         } catch (error) {
-          logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
+          logger.debug(
+            'Main',
+            `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`,
+            error,
+          );
         }
 
         // Start tracking price for this token (real-time via WebSocket)
@@ -134,9 +138,10 @@ async function main() {
       // Update sell time and price when target wallet sells
       if (event.type === 'sell') {
         const sellTime = event.timestamp || Date.now();
-        const sellPrice = event.tokenAmount > 0n
-          ? Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL
-          : undefined; // Price when target wallet sold
+        const sellPrice =
+          event.tokenAmount > 0n
+            ? Number(event.solAmount) / Number(event.tokenAmount) / LAMPORTS_PER_SOL
+            : undefined; // Price when target wallet sold
         const sellLiquidity = event.liquidity; // Liquidity when target wallet sold
 
         // Fetch target wallet balance after sell
@@ -146,10 +151,22 @@ async function main() {
           const balance = await connectionManager.connection.getBalance(targetWalletPubkey);
           balanceAfterSell = balance / LAMPORTS_PER_SOL;
         } catch (error) {
-          logger.debug('Main', `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`, error);
+          logger.debug(
+            'Main',
+            `Failed to get balance for target wallet ${event.user.slice(0, 8)}...`,
+            error,
+          );
         }
 
-        priceMonitor.updateSellTime(event.mint, sellTime, sellPrice, undefined, undefined, sellLiquidity, balanceAfterSell);
+        priceMonitor.updateSellTime(
+          event.mint,
+          sellTime,
+          sellPrice,
+          undefined,
+          undefined,
+          sellLiquidity,
+          balanceAfterSell,
+        );
       }
     });
 
@@ -159,9 +176,15 @@ async function main() {
     const walletBalanceInterval = setInterval(async () => {
       // Track bot's own wallet balance
       try {
-        const botBalance = await connectionManager.connection.getBalance(connectionManager.wallet.publicKey);
+        const botBalance = await connectionManager.connection.getBalance(
+          connectionManager.wallet.publicKey,
+        );
         const botBalanceSol = botBalance / LAMPORTS_PER_SOL;
-        webUI.broadcastWalletBalance(connectionManager.wallet.publicKey.toString(), botBalanceSol, true);
+        webUI.broadcastWalletBalance(
+          connectionManager.wallet.publicKey.toString(),
+          botBalanceSol,
+          true,
+        );
       } catch (error) {
         logger.debug('Main', `Failed to get bot wallet balance`, error);
       }
@@ -176,7 +199,11 @@ async function main() {
           // Broadcast wallet balance update
           webUI.broadcastWalletBalance(walletAddress, balanceSol, false);
         } catch (error) {
-          logger.debug('Main', `Failed to get balance for wallet ${walletAddress.slice(0, 8)}...`, error);
+          logger.debug(
+            'Main',
+            `Failed to get balance for wallet ${walletAddress.slice(0, 8)}...`,
+            error,
+          );
         }
       }
     }, 10000); // Update every 10 seconds
@@ -210,7 +237,6 @@ async function main() {
     process.exit(1);
   }
 }
-
 
 // Start the bot
 main().catch((error) => {

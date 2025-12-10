@@ -104,7 +104,7 @@ export class TradingEngine {
     // Calculate copy amounts (skip for our own trades - use amounts as-is)
     let copyTokenAmount: bigint;
     let copySolAmount: bigint;
-    
+
     if (isOwnTrade) {
       // For our own trades, use the amounts as-is (already calculated as 1% of target wallet)
       copyTokenAmount = event.tokenAmount;
@@ -143,21 +143,20 @@ export class TradingEngine {
     // Log comparison if websocket liquidity is available
     if (websocketLiquidity !== undefined) {
       const difference = Math.abs(accountLiquidity - websocketLiquidity);
-      const percentDiff = websocketLiquidity > 0
-        ? ((difference / websocketLiquidity) * 100).toFixed(2)
-        : 'N/A';
+      const percentDiff =
+        websocketLiquidity > 0 ? ((difference / websocketLiquidity) * 100).toFixed(2) : 'N/A';
 
       logger.info(
         'TradingEngine',
         `Liquidity comparison for ${mint.toString().slice(0, 8)}... | ` +
-        `WebSocket: ${websocketLiquidity.toFixed(4)} SOL | ` +
-        `AccountInfo: ${accountLiquidity.toFixed(4)} SOL | ` +
-        `Difference: ${difference.toFixed(4)} SOL (${percentDiff}%)`
+          `WebSocket: ${websocketLiquidity.toFixed(4)} SOL | ` +
+          `AccountInfo: ${accountLiquidity.toFixed(4)} SOL | ` +
+          `Difference: ${difference.toFixed(4)} SOL (${percentDiff}%)`,
       );
     } else {
       logger.info(
         'TradingEngine',
-        `Liquidity from AccountInfo for ${mint.toString().slice(0, 8)}...: ${accountLiquidity.toFixed(4)} SOL (WebSocket value not available)`
+        `Liquidity from AccountInfo for ${mint.toString().slice(0, 8)}...: ${accountLiquidity.toFixed(4)} SOL (WebSocket value not available)`,
       );
     }
 
@@ -263,12 +262,9 @@ export class TradingEngine {
     }
 
     // Send transaction
-    // TRADE EXECUTION PAUSED - Commented out for testing detection/measurement
     const signature = await sendTransaction(tx);
-    // const signature = 'PAUSED_EXECUTION_MOCK_SIGNATURE';
 
-    logger.info('TradingEngine', `PumpFun ${event.type} execution PAUSED (mock): ${signature}`);
-    logger.info('TradingEngine', 'Trade execution is paused - only detection/measurement is active');
+    logger.info('TradingEngine', `PumpFun ${event.type} executed: ${signature}`);
 
     return {
       success: true,
@@ -292,7 +288,7 @@ export class TradingEngine {
     // Calculate copy amounts (skip for our own trades - use amounts as-is)
     let copyTokenAmount: bigint;
     let copySolAmount: bigint;
-    
+
     if (isOwnTrade) {
       // For our own trades, use the amounts as-is (already calculated as 1% of target wallet)
       copyTokenAmount = event.tokenAmount;
@@ -336,14 +332,14 @@ export class TradingEngine {
     let accountLiquidity: number | undefined;
     try {
       const poolQuoteTokenBalance = await connectionManager.connection.getTokenAccountBalance(
-        poolData.poolQuoteTokenAccount
+        poolData.poolQuoteTokenAccount,
       );
       accountLiquidity = Number(poolQuoteTokenBalance.value.amount) / LAMPORTS_PER_SOL;
     } catch (error) {
       logger.warn(
         'TradingEngine',
         `Failed to get pool quote token balance for ${mint.toString().slice(0, 8)}...`,
-        error
+        error,
       );
     }
 
@@ -352,21 +348,20 @@ export class TradingEngine {
     // Log comparison if both values are available
     if (accountLiquidity !== undefined && websocketLiquidity !== undefined) {
       const difference = Math.abs(accountLiquidity - websocketLiquidity);
-      const percentDiff = websocketLiquidity > 0
-        ? ((difference / websocketLiquidity) * 100).toFixed(2)
-        : 'N/A';
+      const percentDiff =
+        websocketLiquidity > 0 ? ((difference / websocketLiquidity) * 100).toFixed(2) : 'N/A';
 
       logger.info(
         'TradingEngine',
         `Liquidity comparison (AMM) for ${mint.toString().slice(0, 8)}... | ` +
-        `WebSocket: ${websocketLiquidity.toFixed(4)} SOL | ` +
-        `AccountInfo: ${accountLiquidity.toFixed(4)} SOL | ` +
-        `Difference: ${difference.toFixed(4)} SOL (${percentDiff}%)`
+          `WebSocket: ${websocketLiquidity.toFixed(4)} SOL | ` +
+          `AccountInfo: ${accountLiquidity.toFixed(4)} SOL | ` +
+          `Difference: ${difference.toFixed(4)} SOL (${percentDiff}%)`,
       );
     } else if (accountLiquidity !== undefined) {
       logger.info(
         'TradingEngine',
-        `Liquidity from AccountInfo (AMM) for ${mint.toString().slice(0, 8)}...: ${accountLiquidity.toFixed(4)} SOL (WebSocket value not available)`
+        `Liquidity from AccountInfo (AMM) for ${mint.toString().slice(0, 8)}...: ${accountLiquidity.toFixed(4)} SOL (WebSocket value not available)`,
       );
     }
 
@@ -435,7 +430,8 @@ export class TradingEngine {
         // Check wallet balance
         const walletBalanceBigInt = BigInt(walletBalance);
         const rentReserve = 5_000_000n; // Reserve for rent and fees
-        const availableSol = walletBalanceBigInt > rentReserve ? walletBalanceBigInt - rentReserve : 0n;
+        const availableSol =
+          walletBalanceBigInt > rentReserve ? walletBalanceBigInt - rentReserve : 0n;
 
         if (availableSol < wsolNeeded) {
           throw new Error(
@@ -525,11 +521,9 @@ export class TradingEngine {
     }
 
     // Send transaction
-    // TRADE EXECUTION PAUSED - Commented out for testing detection/measurement
     const signature = await sendTransaction(tx);
 
-    logger.info('TradingEngine', `PumpAMM ${event.type} execution PAUSED (mock): ${signature}`);
-    logger.info('TradingEngine', 'Trade execution is paused - only detection/measurement is active');
+    logger.info('TradingEngine', `PumpAMM ${event.type} executed: ${signature}`);
 
     return {
       success: true,
