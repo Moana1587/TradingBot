@@ -8,12 +8,15 @@ import type { PriceUpdateEvent } from './price-monitor';
 import { tradingEngine } from './trading';
 import { connectionManager } from './connection';
 import { positionManager } from './positions';
+import { priceMonitor } from './price-monitor';
+import { config } from '../config/env';
 import { PublicKey } from '@solana/web3.js';
 import { LAMPORTS_PER_SOL } from '../config/constants';
 import { getBondingCurvePDA, PUMPFUN_PROGRAM } from '../config/constants';
 import { struct, u64, bool, publicKey } from '@coral-xyz/borsh';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../config/constants';
+import { getWsolBalance } from '../utils/wsol';
 import type { TradeEvent } from '../types';
 
 // Bonding curve layout for getting creator
@@ -155,7 +158,7 @@ export class WebUI extends EventEmitter {
 
             if (!mint || !protocol) {
                 ws.send(JSON.stringify({
-                    type: 'tradeResult',
+                    messageType: 'tradeResult',
                     success: false,
                     error: 'Missing mint or protocol'
                 }));
@@ -169,7 +172,7 @@ export class WebUI extends EventEmitter {
 
             if (!bondingCurveAccount) {
                 ws.send(JSON.stringify({
-                    type: 'tradeResult',
+                    messageType: 'tradeResult',
                     success: false,
                     error: 'Bonding curve not found'
                 }));
@@ -185,7 +188,7 @@ export class WebUI extends EventEmitter {
                 // For buy, we need solAmount
                 if (!solAmount) {
                     ws.send(JSON.stringify({
-                        type: 'tradeResult',
+                        messageType: 'tradeResult',
                         success: false,
                         error: 'Missing solAmount for buy'
                     }));
@@ -230,7 +233,7 @@ export class WebUI extends EventEmitter {
 
                 if (tokenAmount === BigInt(0)) {
                     ws.send(JSON.stringify({
-                        type: 'tradeResult',
+                        messageType: 'tradeResult',
                         success: false,
                         error: 'No tokens to sell'
                     }));
@@ -249,7 +252,78 @@ export class WebUI extends EventEmitter {
                 };
             }
 
-            // Execute the trade
+            // Use the same logic as handleTradeEvent from index.ts
+            const solAmountNumber = Number(tradeEvent.solAmount) / LAMPORTS_PER_SOL;
+            const tokenAmountStr = tradeEvent.tokenAmount.toString();
+
+            // Check if this is our own trade (it always is for manual trades)
+            const isOwnTrade = tradeEvent.user === connectionManager.wallet.publicKey.toString();
+
+            if (isOwnTrade) {
+                logger.info('WebUI', `Own trade detected: ${tradeEvent.type} ${tradeEvent.mint.slice(0, 8)}...`);
+                // Will update position after trade execution
+            }
+
+            // Validate trade amount
+            if (solAmountNumber < config.minTradingAmountSol) {
+                ws.send(JSON.stringify({
+                    messageType: 'tradeResult',
+                    success: false,
+                    error: `Amount ${solAmountNumber.toFixed(4)} SOL < minimum ${config.minTradingAmountSol} SOL`
+                }));
+                return;
+            }
+
+            if (tradeEvent.type === 'buy' && solAmountNumber >= config.maxTradingAmountSol) {
+                ws.send(JSON.stringify({
+                    messageType: 'tradeResult',
+                    success: false,
+                    error: `Amount ${solAmountNumber.toFixed(4)} SOL >= maximum ${config.maxTradingAmountSol} SOL`
+                }));
+                return;
+            }
+
+            // For manual trades, use the exact amount (no copy percentage)
+            logger.info(
+                'WebUI',
+                `Manual trade: ${tradeEvent.type.toUpperCase()} ${tradeEvent.mint.slice(0, 8)}... | ` +
+                `Amount: ${solAmountNumber.toFixed(4)} SOL | ` +
+                `${tokenAmountStr} tokens`,
+            );
+
+            // Calculate buy price when buying and start tracking
+            if (tradeEvent.type === 'buy' && tradeEvent.tokenAmount > 0n) {
+                const buyPrice = Number(tradeEvent.solAmount) / Number(tradeEvent.tokenAmount) / LAMPORTS_PER_SOL;
+                const buyLiquidity = tradeEvent.liquidity; // Use liquidity from trade event if available
+                const buyTime = tradeEvent.timestamp || Date.now();
+                const targetBuyPrice = buyPrice; // Price when we bought
+
+                // Start tracking price for this token (real-time via WebSocket)
+                await priceMonitor.trackToken(
+                    tradeEvent.mint,
+                    tradeEvent.protocol,
+                    buyPrice,
+                    tradeEvent.pool,
+                    buyLiquidity,
+                    tradeEvent.user,
+                    buyTime,
+                    targetBuyPrice,
+                    undefined, // balanceBeforeBuy - not needed for manual trades
+                );
+            }
+
+            // Update sell time and price when selling
+            if (tradeEvent.type === 'sell') {
+                const sellTime = tradeEvent.timestamp || Date.now();
+                const sellPrice = tradeEvent.tokenAmount > 0n
+                    ? Number(tradeEvent.solAmount) / Number(tradeEvent.tokenAmount) / LAMPORTS_PER_SOL
+                    : undefined; // Price when we sold
+                const sellLiquidity = tradeEvent.liquidity; // Liquidity when we sold
+
+                priceMonitor.updateSellTime(tradeEvent.mint, sellTime, sellPrice, undefined, undefined, sellLiquidity, undefined);
+            }
+
+            // Execute trade
             const result = await tradingEngine.executeTrade(tradeEvent);
 
             // Send result back to client
@@ -258,14 +332,81 @@ export class WebUI extends EventEmitter {
                 ...result
             }));
 
-            // Update position manager
             if (result.success) {
+                logger.info('WebUI', `Trade executed successfully: ${result.signature}`);
+                // Update position manager with our trade event
                 positionManager.updatePosition(tradeEvent, true);
+
+                // Calculate and track fees
+                const tradeSolAmountNumber = Number(tradeEvent.solAmount) / LAMPORTS_PER_SOL;
+
+                if (tradeEvent.type === 'buy') {
+                    // Estimate fees for buy transaction
+                    // Base transaction fee: ~5000 lamports (0.000005 SOL)
+                    // Priority fee: estimated ~10000 lamports (0.00001 SOL) for fast execution
+                    // Protocol fees: typically 1-2% of trade amount (using 1.5% as estimate)
+                    const baseTxFee = 0.000005; // Base transaction fee
+                    const priorityFee = 0.00001; // Priority fee estimate
+                    const protocolFeeRate = 0.015; // 1.5% protocol fee estimate
+                    const protocolFee = tradeSolAmountNumber * protocolFeeRate;
+                    const totalBuyFee = baseTxFee + priorityFee + protocolFee;
+                    const totalBuyAmount = tradeSolAmountNumber + totalBuyFee;
+                    const buyTokenAmount = Number(tradeEvent.tokenAmount);
+                    const buyPrice = Number(tradeEvent.solAmount) / Number(tradeEvent.tokenAmount) / LAMPORTS_PER_SOL; // Price per token
+
+                    // Track buy fees and token amounts
+                    priceMonitor.updateBuyFees(tradeEvent.mint, totalBuyAmount, totalBuyFee, buyTokenAmount, buyPrice);
+                } else if (tradeEvent.type === 'sell') {
+                    // Estimate fees for sell transaction
+                    // Base transaction fee: ~5000 lamports (0.000005 SOL)
+                    // Priority fee: estimated ~10000 lamports (0.00001 SOL) for fast execution
+                    // Protocol fees: typically 1-2% of trade amount (using 1.5% as estimate)
+                    const baseTxFee = 0.000005; // Base transaction fee
+                    const priorityFee = 0.00001; // Priority fee estimate
+                    const protocolFeeRate = 0.015; // 1.5% protocol fee estimate
+                    const sellAmountNumber = Number(tradeEvent.solAmount) / LAMPORTS_PER_SOL;
+                    const protocolFee = sellAmountNumber * protocolFeeRate;
+                    const totalSellFee = baseTxFee + priorityFee + protocolFee;
+                    const netSellAmount = sellAmountNumber - totalSellFee; // Net amount received after fees
+
+                    // Update sell time with fees
+                    const sellTime = tradeEvent.timestamp || Date.now();
+                    const sellPrice = tradeEvent.tokenAmount > 0n
+                        ? Number(tradeEvent.solAmount) / Number(tradeEvent.tokenAmount) / LAMPORTS_PER_SOL
+                        : undefined;
+                    const sellLiquidity = tradeEvent.liquidity; // Liquidity when we sold
+                    const sellTokenAmount = Number(tradeEvent.tokenAmount);
+
+                    // Update sell time with our trade data (token amounts and prices for profit calculation)
+                    priceMonitor.updateSellTime(tradeEvent.mint, sellTime, sellPrice, netSellAmount, totalSellFee, sellLiquidity, undefined, sellTokenAmount);
+                }
+
+                // Log wallet balance asynchronously (non-blocking) after successful trade
+                // Using setImmediate to defer execution so it doesn't block the main flow
+                setImmediate(async () => {
+                    try {
+                        const solBalance = await connectionManager.getBalance();
+                        const wsolBalance = await getWsolBalance(
+                            connectionManager.connection,
+                            connectionManager.wallet.publicKey,
+                        );
+                        const wsolBalanceSol = Number(wsolBalance) / LAMPORTS_PER_SOL;
+                        const totalBalance = solBalance + wsolBalanceSol;
+                        logger.info(
+                            'WebUI',
+                            `Wallet balance after trade: ${totalBalance.toFixed(4)} SOL (${solBalance.toFixed(4)} SOL + ${wsolBalanceSol.toFixed(4)} WSOL)`,
+                        );
+                    } catch (error) {
+                        logger.warn('WebUI', 'Failed to get wallet balance after trade', error);
+                    }
+                });
+            } else {
+                logger.error('WebUI', `Trade failed: ${result.error}`);
             }
         } catch (error) {
             logger.error('WebUI', 'Error handling trade request', error);
             ws.send(JSON.stringify({
-                type: 'tradeResult',
+                messageType: 'tradeResult',
                 success: false,
                 error: error instanceof Error ? error.message : 'Unknown error'
             }));
