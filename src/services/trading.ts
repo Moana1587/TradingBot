@@ -3,6 +3,7 @@ import { BN } from '@coral-xyz/anchor';
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createSyncNativeInstruction,
+  createCloseAccountInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { connectionManager } from './connection';
@@ -254,11 +255,17 @@ export class TradingEngine {
           .instruction(),
       );
 
-      // Optionally close token account if selling all our position
-      // Note: We can't easily check our actual token balance here without an extra RPC call,
-      // so we'll skip closing the account. The account can be closed manually or in a cleanup process.
-      // Closing based on copyTokenAmount === event.tokenAmount is incorrect since copyTokenAmount
-      // is a percentage of event.tokenAmount and will almost never be equal.
+      // Close token account after selling to recover rent
+      // This will only succeed if the account balance is zero after the sell
+      tx.add(
+        createCloseAccountInstruction(
+          walletBaseAta, // Account to close
+          connectionManager.wallet.publicKey, // Destination for rent
+          connectionManager.wallet.publicKey, // Owner
+          [], // No multisig signers
+          tokenProgram, // Token program
+        ),
+      );
     }
 
     // Send transaction
@@ -513,11 +520,17 @@ export class TradingEngine {
           .instruction(),
       );
 
-      // Optionally close token account if selling all our position
-      // Note: We can't easily check our actual token balance here without an extra RPC call,
-      // so we'll skip closing the account. The account can be closed manually or in a cleanup process.
-      // Closing based on copyTokenAmount === event.tokenAmount is incorrect since copyTokenAmount
-      // is a percentage of event.tokenAmount and will almost never be equal.
+      // Close token account after selling to recover rent
+      // This will only succeed if the account balance is zero after the sell
+      tx.add(
+        createCloseAccountInstruction(
+          walletBaseAta, // Account to close
+          connectionManager.wallet.publicKey, // Destination for rent
+          connectionManager.wallet.publicKey, // Owner
+          [], // No multisig signers
+          baseTokenProgram, // Token program
+        ),
+      );
     }
 
     // Send transaction

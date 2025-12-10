@@ -204,24 +204,27 @@ export class WebUI extends EventEmitter {
           return;
         }
 
-        // Calculate SOL amount needed to buy the same number of tokens as target wallet
+        // Calculate token amount to buy: COPY_PERCENTAGE of target wallet's token amount
         // Use the price when target wallet bought to estimate SOL needed
         // Note: Due to bonding curve mechanics, if price has changed, actual tokens may vary
         const targetTokenAmount = trackedToken.targetWalletTokenAmount;
         const targetBuyPrice = trackedToken.targetWalletBuyPrice;
 
-        // Calculate SOL needed: tokenAmount * price per token (at time of target wallet's buy)
-        // Convert bigint to number for calculation
+        // Calculate our token amount: targetTokenAmount * (copyPercentage / 100)
         const tokenAmountNumber = Number(targetTokenAmount);
-        const solAmountNeeded = tokenAmountNumber * targetBuyPrice;
+        const copyTokenAmountNumber = tokenAmountNumber * (config.copyPercentage / 100);
+        const copyTokenAmount = BigInt(Math.floor(copyTokenAmountNumber));
+
+        // Calculate SOL needed: ourTokenAmount * price per token (at time of target wallet's buy)
+        const solAmountNeeded = copyTokenAmountNumber * targetBuyPrice;
         const solAmountLamports = BigInt(Math.floor(solAmountNeeded * LAMPORTS_PER_SOL));
 
-        // Use target token amount as estimated token amount
-        const estimatedTokenAmount = targetTokenAmount;
+        // Use calculated token amount as estimated token amount
+        const estimatedTokenAmount = copyTokenAmount;
 
         logger.info(
           'WebUI',
-          `Buying same token amount as target wallet: ${targetTokenAmount.toString()} tokens | ` +
+          `Buying ${config.copyPercentage}% of target wallet's token amount: ${copyTokenAmount.toString()} tokens (target: ${targetTokenAmount.toString()}) | ` +
             `SOL needed: ${solAmountNeeded.toFixed(6)} SOL (based on buy price: ${targetBuyPrice.toFixed(8)} SOL/token)`,
         );
 
@@ -531,3 +534,4 @@ export class WebUI extends EventEmitter {
 }
 
 export const webUI = new WebUI(3000);
+

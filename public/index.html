@@ -1525,37 +1525,36 @@
             }
 
             try {
-                // Calculate buy amount - use 1% of target wallet's buy amount
-                const targetBuyAmount = token.targetWalletBuyAmount || 0;
-                const solAmount = targetBuyAmount > 0 ? targetBuyAmount * 0.01 : 0.1; // 1% of target wallet's buy amount, or default 0.1 SOL
+                // Check if we have the target wallet token amount
+                // The backend will calculate the SOL amount needed to buy the same number of tokens
+                if (!token.targetWalletTokenAmount && !token.targetWalletBuyAmount) {
+                    console.log('Token data not complete for auto-buy:', mint);
+                    return false;
+                }
 
                 // Send trade request via WebSocket to execute real trade
+                // Backend will calculate SOL amount based on target wallet's token amount
                 const tradeMessage = {
                     type: 'executeTrade',
                     data: {
                         type: 'buy',
                         protocol: token.protocol,
                         mint: mint,
-                        solAmount: solAmount,
                         timestamp: Date.now()
                     }
                 };
 
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify(tradeMessage));
-                    console.log('Buy trade requested:', {
+                    console.log('Auto-buy trade requested:', {
                         mint: mint,
-                        solAmount: solAmount,
-                        protocol: token.protocol
+                        protocol: token.protocol,
+                        targetTokenAmount: token.targetWalletTokenAmount,
+                        targetBuyAmount: token.targetWalletBuyAmount
                     });
 
-                    // Mark as having position with buy price (will be confirmed when trade executes)
-                    // Store the current price as our buy price
-                    positions.set(mint, { 
-                        hasPosition: true,
-                        buyPrice: token.currentPrice,
-                        buyTime: Date.now()
-                    });
+                    // Position will be set when trade result comes back
+                    // Don't set it here to avoid incorrect data display
 
                     // Show notification
                     const notification = document.createElement('div');
@@ -1573,9 +1572,9 @@
                         max-width: 300px;
                     `;
                     notification.innerHTML = `
-                        <strong>✅ Buy Trade Executed</strong><br>
+                        <strong>✅ Auto-Buy Trade Requested</strong><br>
                         ${mint.slice(0, 8)}... (${token.protocol})<br>
-                        Amount: ${formatLiquidity(solAmount)} SOL
+                        Buying percentage of target wallet's amount
                     `;
                     document.body.appendChild(notification);
                     
@@ -1783,9 +1782,11 @@
                     // Get existing token data if it exists
                     const existingToken = priceData.get(data.mint);
 
-                    // Update price data, preserving firstSeenTimestamp if it exists
+                    // Update price data, preserving existing fields that might not be in the update
+                    // This ensures all token data is preserved when price updates come in
                     const updatedToken = {
-                        ...data,
+                        ...existingToken, // Preserve all existing fields
+                        ...data, // Override with new data from price update
                         lastUpdate: timestamp,
                         firstSeenTimestamp: existingToken?.firstSeenTimestamp || timestamp
                     };
@@ -1867,16 +1868,22 @@
                         if (result.type === 'buy') {
                             // Get token data to store buy price
                             const token = priceData.get(mint);
+                            // Use target wallet buy price as our buy price reference
+                            // This is more accurate than currentPrice which may have changed
+                            const buyPrice = token 
+                                ? (token.targetWalletBuyPrice || token.buyPrice || token.currentPrice)
+                                : null;
+                            
                             // Mark as having position with buy price
                             positions.set(mint, { 
                                 hasPosition: true,
-                                buyPrice: token ? token.currentPrice : null,
+                                buyPrice: buyPrice,
                                 buyTime: Date.now()
                             });
                             console.log('Buy trade successful:', {
                                 mint: mint,
                                 signature: result.signature,
-                                buyPrice: token ? token.currentPrice : null
+                                buyPrice: buyPrice
                             });
                         } else if (result.type === 'sell') {
                             // Remove position
