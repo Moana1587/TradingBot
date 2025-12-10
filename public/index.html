@@ -636,7 +636,7 @@
         const ws = new WebSocket(`${protocol}//${window.location.hostname}:${window.location.port || 3000}/ws`);
         const priceData = new Map();
         const priceHistory = new Map(); // Store price history for charts: mint -> [{time, price, liquidity}]
-        const boughtTokens = new Map(); // Track bought tokens: mint -> {buyTime, buyPrice, buyLiquidity}
+        const positions = new Map(); // Track positions: mint -> {hasPosition: boolean}
         let totalUpdates = 0;
         let autoBuyingActive = false; // Track if auto-buying is active
         let chart = null;
@@ -646,10 +646,8 @@
         let myWalletBalance = null; // Store bot's own wallet balance (from server)
         let previousWalletBalance = null; // Store previous balance for comparison
         let myWalletBalanceHistory = []; // Store bot's wallet balance history for mini chart
-        let virtualWalletBalance = 100.0; // Virtual wallet balance for testing (start with 100 SOL)
         const maxHistoryPoints = 100; // Keep last 100 data points
         const maxMiniChartPoints = 20; // Keep last 20 points for mini chart
-        const TRANSFER_FEE = 0.000005; // SOL transfer fee (typical Solana transaction fee)
 
         function updateStatus(connected) {
             const indicator = document.getElementById('statusIndicator');
@@ -823,18 +821,18 @@
                     const priceChangeClass = token.priceChangePercent >= 0 ? 'positive' : 'negative';
                     const liqChangeClass = token.liquidityChangePercent >= 0 ? 'positive' : 'negative';
 
-                    // Calculate profit/loss for bought tokens (including fees)
+                    // Calculate profit/loss for positions
                     let profitClass = '';
                     let profitDisplay = '-';
-                    const isBought = boughtTokens.has(token.mint);
+                    const hasPosition = positions.has(token.mint) && positions.get(token.mint).hasPosition;
+                    const position = hasPosition ? positions.get(token.mint) : null;
+                    const ourBuyPrice = position && position.buyPrice ? position.buyPrice : null;
                     
-                    if (isBought) {
-                        const buyInfo = boughtTokens.get(token.mint);
-                        const totalBuyCost = buyInfo.totalBuyCost || (buyInfo.buyPrice + (buyInfo.buyFee || 0) + (buyInfo.transferFee || TRANSFER_FEE));
+                    if (hasPosition && ourBuyPrice) {
+                        // Calculate profit based on our buy price and current price
+                        const buyPrice = ourBuyPrice;
                         const sellPrice = token.currentPrice;
-                        const sellFee = token.sellFee || 0;
-                        const totalSellProceeds = sellPrice - sellFee - TRANSFER_FEE;
-                        const netProfit = totalSellProceeds - totalBuyCost;
+                        const netProfit = sellPrice - buyPrice;
                         
                         profitClass = netProfit >= 0 ? 'positive' : 'negative';
                         profitDisplay = `${netProfit >= 0 ? '+' : ''}${formatPrice(netProfit)} SOL`;
@@ -843,7 +841,7 @@
                         profitDisplay = `${token.profit >= 0 ? '+' : ''}${formatPrice(token.profit)} SOL`;
                     }
 
-                    const sellButton = isBought 
+                    const sellButton = hasPosition 
                         ? `<button class="details-btn" style="background: #f44336;" onclick="event.stopPropagation(); sellToken('${token.mint}')">💰 Sell</button>`
                         : '-';
 
@@ -851,7 +849,7 @@
                         <tr data-mint="${token.mint}" class="${selectedMint === token.mint ? 'selected' : ''}" onclick="selectTokenFromTable('${token.mint}')">
                             <td data-column="mint" class="mint">${token.mint.slice(0, 8)}...</td>
                             <td data-column="currentPrice" class="price">${formatPrice(token.currentPrice)} SOL</td>
-                            <td data-column="buyPrice" class="price">${formatPrice(token.buyPrice)} SOL</td>
+                            <td data-column="buyPrice" class="price">${formatPrice(ourBuyPrice || token.buyPrice || token.targetWalletBuyPrice)} SOL</td>
                             <td data-column="priceChange"><span class="change ${priceChangeClass}">${formatPercent(token.priceChangePercent)}</span></td>
                             <td data-column="currentLiquidity" class="liquidity">${formatLiquidity(token.currentLiquidity)} SOL</td>
                             <td data-column="liquidityChange"><span class="change ${liqChangeClass}">${formatPercent(token.liquidityChangePercent)}</span></td>
@@ -1009,19 +1007,19 @@
         });
 
         function updateStats() {
-            // Always show virtual balance (for testing buying/selling)
+            // Show real wallet balance
             const balanceElement = document.getElementById('myWalletBalance');
             
-            if (virtualWalletBalance !== null && virtualWalletBalance !== undefined) {
+            if (myWalletBalance !== null && myWalletBalance !== undefined) {
                 let arrow = '';
                 let balanceClass = '';
                 
-                // Compare with previous virtual balance
+                // Compare with previous balance
                 if (previousWalletBalance !== null) {
-                    if (virtualWalletBalance > previousWalletBalance) {
+                    if (myWalletBalance > previousWalletBalance) {
                         arrow = ' <span class="balance-arrow">↑</span>';
                         balanceClass = 'balance-increase';
-                    } else if (virtualWalletBalance < previousWalletBalance) {
+                    } else if (myWalletBalance < previousWalletBalance) {
                         arrow = ' <span class="balance-arrow">↓</span>';
                         balanceClass = 'balance-decrease';
                     }
@@ -1029,7 +1027,7 @@
                 
                 // Update class
                 balanceElement.className = `stat-value ${balanceClass}`;
-                balanceElement.innerHTML = `${formatLiquidity(virtualWalletBalance)} SOL${arrow} <span style="font-size: 12px; color: #999; font-weight: normal;">(Virtual)</span>`;
+                balanceElement.innerHTML = `${formatLiquidity(myWalletBalance)} SOL${arrow}`;
             } else {
                 balanceElement.className = 'stat-value';
                 balanceElement.textContent = '- SOL';
@@ -1509,10 +1507,10 @@
             }
         }
 
-        function autoBuyToken(mint, token) {
-            // Check if already bought
-            if (boughtTokens.has(mint)) {
-                return false; // Already bought, skip
+        async function autoBuyToken(mint, token) {
+            // Check if already have position
+            if (positions.has(mint) && positions.get(mint).hasPosition) {
+                return false; // Already have position, skip
             }
 
             // Check liquidity requirement (must be above 7 SOL)
@@ -1520,118 +1518,109 @@
                 return false; // Liquidity too low, skip
             }
 
-            // Calculate buy costs
-            const buyPrice = token.currentPrice;
-            const buyFee = token.buyFee || 0;
-            const totalBuyCost = buyPrice + buyFee + TRANSFER_FEE;
+            try {
+                // Calculate buy amount - use target wallet's buy amount if available
+                // For now, use a default amount based on the token price
+                const solAmount = token.targetWalletBuyAmount || 0.1; // Default 0.1 SOL or use target wallet amount
 
-            // Check if virtual wallet has enough balance
-            if (virtualWalletBalance < totalBuyCost) {
-                console.log('Insufficient virtual balance for buy:', {
-                    mint: mint,
-                    required: totalBuyCost,
-                    available: virtualWalletBalance
-                });
-                return false; // Insufficient balance
+                // Send trade request via WebSocket to execute real trade
+                const tradeMessage = {
+                    type: 'executeTrade',
+                    data: {
+                        type: 'buy',
+                        protocol: token.protocol,
+                        mint: mint,
+                        solAmount: solAmount,
+                        timestamp: Date.now()
+                    }
+                };
+
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(tradeMessage));
+                    console.log('Buy trade requested:', {
+                        mint: mint,
+                        solAmount: solAmount,
+                        protocol: token.protocol
+                    });
+
+                    // Mark as having position with buy price (will be confirmed when trade executes)
+                    // Store the current price as our buy price
+                    positions.set(mint, { 
+                        hasPosition: true,
+                        buyPrice: token.currentPrice,
+                        buyTime: Date.now()
+                    });
+
+                    // Show notification
+                    const notification = document.createElement('div');
+                    notification.style.cssText = `
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        background: #4caf50;
+                        color: white;
+                        padding: 15px 20px;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                        z-index: 2000;
+                        font-size: 14px;
+                        max-width: 300px;
+                    `;
+                    notification.innerHTML = `
+                        <strong>✅ Buy Trade Executed</strong><br>
+                        ${mint.slice(0, 8)}... (${token.protocol})<br>
+                        Amount: ${formatLiquidity(solAmount)} SOL
+                    `;
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 5000);
+
+                    // Update table
+                    updateTable();
+                    
+                    return true;
+                } else {
+                    console.error('WebSocket not connected');
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error executing buy:', error);
+                return false;
             }
-
-            // Deduct from virtual wallet
-            const previousBalance = virtualWalletBalance;
-            virtualWalletBalance -= totalBuyCost;
-            
-            // Store previous balance for comparison display
-            previousWalletBalance = previousBalance;
-
-            // Virtual buy - mark token as bought
-            boughtTokens.set(mint, {
-                buyTime: Date.now(),
-                buyPrice: buyPrice,
-                buyFee: buyFee,
-                transferFee: TRANSFER_FEE,
-                totalBuyCost: totalBuyCost,
-                buyLiquidity: token.currentLiquidity,
-                protocol: token.protocol
-            });
-
-            console.log('Virtual buy executed:', {
-                mint: mint,
-                buyPrice: buyPrice,
-                buyFee: buyFee,
-                transferFee: TRANSFER_FEE,
-                totalCost: totalBuyCost,
-                balanceBefore: previousBalance,
-                balanceAfter: virtualWalletBalance,
-                protocol: token.protocol
-            });
-
-            // Update displayed balance
-            updateVirtualBalance();
-
-            // Show notification (non-blocking)
-            const notification = document.createElement('div');
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #4caf50;
-                color: white;
-                padding: 15px 20px;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                z-index: 2000;
-                font-size: 14px;
-                max-width: 300px;
-            `;
-            notification.innerHTML = `
-                <strong>✅ Auto-Bought Token</strong><br>
-                ${mint.slice(0, 8)}... (${token.protocol})<br>
-                Price: ${formatPrice(buyPrice)} SOL<br>
-                Fee: ${formatPrice(buyFee + TRANSFER_FEE)} SOL<br>
-                Total: ${formatPrice(totalBuyCost)} SOL<br>
-                Balance: ${formatLiquidity(virtualWalletBalance)} SOL
-            `;
-            document.body.appendChild(notification);
-            
-            // Remove notification after 5 seconds
-            setTimeout(() => {
-                notification.remove();
-            }, 5000);
-
-            // Update table to show sell button
-            updateTable();
-            
-            return true;
         }
 
         function checkAutoSellConditions(mint, token) {
-            if (!boughtTokens.has(mint)) {
-                return; // Not a bought token
+            if (!positions.has(mint) || !positions.get(mint).hasPosition) {
+                return; // Not a position we hold
             }
 
-            const buyInfo = boughtTokens.get(mint);
-            const buyPrice = buyInfo.buyPrice;
-            const buyFee = buyInfo.buyFee || 0;
-            const buyTransferFee = buyInfo.transferFee || TRANSFER_FEE;
-            const totalBuyCost = buyInfo.totalBuyCost || (buyPrice + buyFee + buyTransferFee);
+            // Use our buy price (when we bought the token)
+            const position = positions.get(mint);
+            const buyPrice = position.buyPrice;
+            if (!buyPrice) {
+                return; // No buy price available
+            }
             
             const currentPrice = token.currentPrice;
             let shouldSell = false;
             let sellReason = '';
             let notificationColor = '#ff9800';
 
-            // Check stop-loss condition: price below 80% of buying price
-            const stopLossThreshold = buyPrice * 0.80; // 80% of buy price
+            // Check stop-loss condition: price below 85% of buying price
+            const stopLossThreshold = buyPrice * 0.85; // 85% of buy price
             if (currentPrice <= stopLossThreshold) {
                 shouldSell = true;
                 sellReason = `Stop Loss: Price dropped to ${((currentPrice / buyPrice) * 100).toFixed(2)}% of buy price`;
                 notificationColor = '#f44336'; // Red for stop loss
             }
-            // Check take-profit condition: (buy price + all fees) * 1.5
+            // Check take-profit condition: buy price * 1.7 (170% gain)
             else {
-                const takeProfitThreshold = totalBuyCost * 1.7;
+                const takeProfitThreshold = buyPrice * 1.7;
                 if (currentPrice >= takeProfitThreshold) {
                     shouldSell = true;
-                    const profitPercent = ((currentPrice - totalBuyCost) / totalBuyCost * 100).toFixed(2);
+                    const profitPercent = ((currentPrice - buyPrice) / buyPrice * 100).toFixed(2);
                     sellReason = `Take Profit: Price reached ${profitPercent}% profit`;
                     notificationColor = '#4caf50'; // Green for profit
                 }
@@ -1662,7 +1651,7 @@
                     max-width: 300px;
                 `;
                 const priceRatio = ((currentPrice / buyPrice) * 100).toFixed(2);
-                const profitPercent = ((currentPrice - totalBuyCost) / totalBuyCost * 100).toFixed(2);
+                const profitPercent = ((currentPrice - buyPrice) / buyPrice * 100).toFixed(2);
                 notification.innerHTML = `
                     <strong>💰 Auto-Sell Triggered</strong><br>
                     ${mint.slice(0, 8)}...<br>
@@ -1684,8 +1673,8 @@
             }
         }
 
-        function sellToken(mint) {
-            if (!boughtTokens.has(mint)) {
+        async function sellToken(mint) {
+            if (!positions.has(mint) || !positions.get(mint).hasPosition) {
                 console.log('Token is not in your holdings');
                 return;
             }
@@ -1696,91 +1685,62 @@
                 return;
             }
 
-            const buyInfo = boughtTokens.get(mint);
-            const buyPrice = buyInfo.buyPrice;
-            const buyFee = buyInfo.buyFee || 0;
-            const buyTransferFee = buyInfo.transferFee || TRANSFER_FEE;
-            const totalBuyCost = buyInfo.totalBuyCost || (buyPrice + buyFee + buyTransferFee);
+            try {
+                // Send trade request via WebSocket to execute real trade
+                const tradeMessage = {
+                    type: 'executeTrade',
+                    data: {
+                        type: 'sell',
+                        protocol: token.protocol,
+                        mint: mint,
+                        timestamp: Date.now()
+                    }
+                };
 
-            const sellPrice = token.currentPrice;
-            const sellFee = token.sellFee || 0;
-            const sellTransferFee = TRANSFER_FEE;
-            
-            // Calculate sell proceeds: we bought at buyPrice, so we have buyPrice worth of tokens
-            // When selling, we get sellPrice for the same amount, minus fees
-            // Since buyPrice is what we spent on tokens (excluding fees), we get:
-            // sellPrice - sellFee - sellTransferFee
-            const totalSellProceeds = sellPrice - sellFee - sellTransferFee;
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(tradeMessage));
+                    console.log('Sell trade requested:', {
+                        mint: mint,
+                        protocol: token.protocol
+                    });
 
-            // Calculate profit/loss including all fees
-            const netProfit = totalSellProceeds - totalBuyCost;
-            const profitPercent = (totalBuyCost > 0) ? ((netProfit / totalBuyCost) * 100) : 0;
+                    // Remove position (will be confirmed when trade executes)
+                    positions.delete(mint);
 
-            // Add to virtual wallet
-            const previousBalance = virtualWalletBalance;
-            virtualWalletBalance += totalSellProceeds;
-            
-            // Store previous balance for comparison display
-            previousWalletBalance = previousBalance;
+                    // Show notification
+                    const notification = document.createElement('div');
+                    notification.style.cssText = `
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        background: #f44336;
+                        color: white;
+                        padding: 15px 20px;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                        z-index: 2000;
+                        font-size: 14px;
+                        max-width: 300px;
+                    `;
+                    notification.innerHTML = `
+                        <strong>💰 Sell Trade Executed</strong><br>
+                        ${mint.slice(0, 8)}...<br>
+                        Protocol: ${token.protocol}
+                    `;
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.remove();
+                    }, 5000);
 
-            // Virtual sell - remove from bought tokens
-            boughtTokens.delete(mint);
-
-            console.log('Virtual sell executed:', {
-                mint: mint,
-                buyPrice: buyPrice,
-                buyFee: buyFee,
-                buyTransferFee: buyTransferFee,
-                totalBuyCost: totalBuyCost,
-                sellPrice: sellPrice,
-                sellFee: sellFee,
-                sellTransferFee: sellTransferFee,
-                totalSellProceeds: totalSellProceeds,
-                netProfit: netProfit,
-                profitPercent: profitPercent,
-                balanceBefore: previousBalance,
-                balanceAfter: virtualWalletBalance,
-                balanceChange: totalSellProceeds
-            });
-            
-            // Debug: Log if balance didn't change as expected
-            if (Math.abs(virtualWalletBalance - (previousBalance + totalSellProceeds)) > 0.0001) {
-                console.warn('Balance update mismatch!', {
-                    expected: previousBalance + totalSellProceeds,
-                    actual: virtualWalletBalance,
-                    difference: virtualWalletBalance - (previousBalance + totalSellProceeds)
-                });
+                    // Update table
+                    updateTable();
+                } else {
+                    console.error('WebSocket not connected');
+                }
+            } catch (error) {
+                console.error('Error executing sell:', error);
             }
-
-            // Update displayed balance
-            console.log('Updating virtual balance after sell:', {
-                before: previousBalance,
-                sellProceeds: totalSellProceeds,
-                after: virtualWalletBalance
-            });
-            updateVirtualBalance();
-
-            // Update table to remove sell button
-            updateTable();
-        }
-
-        function updateVirtualBalance() {
-            // Update the displayed wallet balance with virtual balance
-            // Note: previousWalletBalance should be set before calling this function
-            updateStats();
-            
-            // Also update mini chart history
-            myWalletBalanceHistory.push({
-                time: Date.now(),
-                balance: virtualWalletBalance
-            });
-            
-            // Keep only last N points for mini chart
-            if (myWalletBalanceHistory.length > maxMiniChartPoints) {
-                myWalletBalanceHistory.shift();
-            }
-            
-            updateMiniBalanceChart();
         }
 
         ws.onopen = () => {
@@ -1831,8 +1791,8 @@
                         autoBuyToken(data.mint, updatedToken);
                     }
 
-                    // Auto-sell logic: Check if bought token should be sold based on price threshold
-                    if (boughtTokens.has(data.mint)) {
+                    // Auto-sell logic: Check if we have a position that should be sold based on price threshold
+                    if (positions.has(data.mint) && positions.get(data.mint).hasPosition) {
                         checkAutoSellConditions(data.mint, updatedToken);
                     }
 
@@ -1872,12 +1832,84 @@
                     const balance = data.balance;
                     const isBotWallet = data.isBotWallet;
 
-                    // If this is the bot's wallet, store it but don't display it
-                    // We always show virtual balance for testing buying/selling
+                    // If this is the bot's wallet, update the display
                     if (isBotWallet) {
-                        // Store the real balance but don't use it for display
+                        // Store previous balance before updating
+                        previousWalletBalance = myWalletBalance;
                         myWalletBalance = balance;
-                        // Don't update stats or mini chart - we use virtual balance instead
+                        
+                        // Update mini chart history
+                        myWalletBalanceHistory.push({
+                            time: timestamp,
+                            balance: balance
+                        });
+                        
+                        // Keep only last N points for mini chart
+                        if (myWalletBalanceHistory.length > maxMiniChartPoints) {
+                            myWalletBalanceHistory.shift();
+                        }
+                        
+                        updateStats();
+                        updateMiniBalanceChart();
+                    }
+                } else if (message.messageType === 'tradeResult' || message.type === 'tradeResult') {
+                    // Handle trade execution result
+                    const result = message;
+                    const mint = result.mint;
+                    
+                    if (result.success) {
+                        if (result.type === 'buy') {
+                            // Get token data to store buy price
+                            const token = priceData.get(mint);
+                            // Mark as having position with buy price
+                            positions.set(mint, { 
+                                hasPosition: true,
+                                buyPrice: token ? token.currentPrice : null,
+                                buyTime: Date.now()
+                            });
+                            console.log('Buy trade successful:', {
+                                mint: mint,
+                                signature: result.signature,
+                                buyPrice: token ? token.currentPrice : null
+                            });
+                        } else if (result.type === 'sell') {
+                            // Remove position
+                            positions.delete(mint);
+                            console.log('Sell trade successful:', {
+                                mint: mint,
+                                signature: result.signature
+                            });
+                        }
+                        
+                        // Update table
+                        updateTable();
+                    } else {
+                        console.error('Trade failed:', result.error);
+                        // Show error notification
+                        const notification = document.createElement('div');
+                        notification.style.cssText = `
+                            position: fixed;
+                            top: 20px;
+                            right: 20px;
+                            background: #f44336;
+                            color: white;
+                            padding: 15px 20px;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                            z-index: 2000;
+                            font-size: 14px;
+                            max-width: 300px;
+                        `;
+                        notification.innerHTML = `
+                            <strong>❌ Trade Failed</strong><br>
+                            ${mint ? mint.slice(0, 8) + '...' : 'Unknown'}<br>
+                            Error: ${result.error || 'Unknown error'}
+                        `;
+                        document.body.appendChild(notification);
+                        
+                        setTimeout(() => {
+                            notification.remove();
+                        }, 5000);
                     }
                 }
             } catch (error) {
@@ -2032,15 +2064,7 @@
         initializeChart();
         initializeSmoothPriceChart();
         initializeMiniBalanceChart();
-        // Initialize virtual balance display
-        previousWalletBalance = virtualWalletBalance;
         updateStats();
-        // Initialize mini chart with initial balance
-        myWalletBalanceHistory.push({
-            time: Date.now(),
-            balance: virtualWalletBalance
-        });
-        updateMiniBalanceChart();
         updateTable();
     </script>
 </body>

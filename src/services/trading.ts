@@ -35,7 +35,7 @@ import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import { struct, u64, bool, publicKey } from '@coral-xyz/borsh';
 import { PumpFunIDL, PumpAmmIDL } from '../idl';
 import type { PumpFun, PumpAmm } from '../idl';
-// import { sendTransaction } from '../utils/transaction';
+import { sendTransaction } from '../utils/transaction';
 import { getWsolBalance } from '../utils/wsol';
 
 // Bonding curve layout
@@ -251,8 +251,8 @@ export class TradingEngine {
 
     // Send transaction
     // TRADE EXECUTION PAUSED - Commented out for testing detection/measurement
-    // const signature = await sendTransaction(tx);
-    const signature = 'PAUSED_EXECUTION_MOCK_SIGNATURE';
+    const signature = await sendTransaction(tx);
+    // const signature = 'PAUSED_EXECUTION_MOCK_SIGNATURE';
 
     logger.info('TradingEngine', `PumpFun ${event.type} execution PAUSED (mock): ${signature}`);
     logger.info('TradingEngine', 'Trade execution is paused - only detection/measurement is active');
@@ -500,8 +500,7 @@ export class TradingEngine {
 
     // Send transaction
     // TRADE EXECUTION PAUSED - Commented out for testing detection/measurement
-    // const signature = await sendTransaction(tx);
-    const signature = 'PAUSED_EXECUTION_MOCK_SIGNATURE';
+    const signature = await sendTransaction(tx);
 
     logger.info('TradingEngine', `PumpAMM ${event.type} execution PAUSED (mock): ${signature}`);
     logger.info('TradingEngine', 'Trade execution is paused - only detection/measurement is active');
