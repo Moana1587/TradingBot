@@ -115,6 +115,7 @@ async function main() {
         }
 
         // Start tracking price for this token (real-time via WebSocket)
+        const targetWalletSolAmount = Number(event.solAmount) / LAMPORTS_PER_SOL;
         await priceMonitor.trackToken(
           event.mint,
           event.protocol,
@@ -125,6 +126,8 @@ async function main() {
           buyTime,
           targetBuyPrice,
           balanceBeforeBuy,
+          targetWalletSolAmount, // SOL amount target wallet spent
+          event.tokenAmount, // Token amount target wallet bought
         );
       }
 
@@ -207,6 +210,7 @@ async function main() {
     process.exit(1);
   }
 }
+
 
 // Start the bot
 main().catch((error) => {

@@ -210,7 +210,18 @@ export class WebUI extends EventEmitter {
                     timestamp: Date.now(),
                 };
             } else {
-                // For sell, get actual token balance
+                // For sell, get tracked token information to determine sell amount
+                // You can access stored target wallet information using:
+                // const trackedToken = priceMonitor.getTrackedToken(mint);
+                // Available properties:
+                // - trackedToken.targetWalletSolAmount: SOL amount target wallet spent on buy
+                // - trackedToken.targetWalletTokenAmount: Token amount target wallet bought
+                // - trackedToken.targetWalletBuyPrice: Price per token when target wallet bought
+                // - trackedToken.targetWallet: Target wallet address
+                // - trackedToken.targetWalletBuyTime: Timestamp when target wallet bought
+                const trackedToken = priceMonitor.getTrackedToken(mint);
+                
+                // Get actual token balance from wallet
                 const mintAccountInfo = await connectionManager.connection.getAccountInfo(mintPubkey);
                 const tokenProgram = mintAccountInfo?.owner.equals(TOKEN_2022_PROGRAM) 
                     ? TOKEN_2022_PROGRAM 
@@ -223,15 +234,15 @@ export class WebUI extends EventEmitter {
                     tokenProgram,
                 );
 
-                let tokenAmount = BigInt(0);
+                let actualTokenBalance = BigInt(0);
                 try {
                     const tokenAccount = await connectionManager.connection.getTokenAccountBalance(walletAta);
-                    tokenAmount = BigInt(tokenAccount.value.amount);
+                    actualTokenBalance = BigInt(tokenAccount.value.amount);
                 } catch (error) {
                     logger.debug('WebUI', `Token account not found for ${mint.slice(0, 8)}...`);
                 }
 
-                if (tokenAmount === BigInt(0)) {
+                if (actualTokenBalance === BigInt(0)) {
                     ws.send(JSON.stringify({
                         messageType: 'tradeResult',
                         success: false,
@@ -240,13 +251,37 @@ export class WebUI extends EventEmitter {
                     return;
                 }
 
+                // Determine sell amount: use 1% of target wallet's token amount if available, otherwise sell all
+                let sellTokenAmount = actualTokenBalance; // Default: sell all tokens
+                
+                if (trackedToken?.targetWalletTokenAmount) {
+                    // Calculate 1% of target wallet's token amount
+                    const targetTokenAmount = trackedToken.targetWalletTokenAmount;
+                    const onePercentOfTarget = (targetTokenAmount * BigInt(1)) / BigInt(100);
+                    
+                    // Use the smaller of: 1% of target amount or actual balance
+                    sellTokenAmount = onePercentOfTarget < actualTokenBalance 
+                        ? onePercentOfTarget 
+                        : actualTokenBalance;
+                    
+                    logger.info(
+                        'WebUI',
+                        `Selling ${sellTokenAmount.toString()} tokens (1% of target wallet's ${targetTokenAmount.toString()}, balance: ${actualTokenBalance.toString()})`
+                    );
+                } else {
+                    logger.info(
+                        'WebUI',
+                        `Target wallet token amount not found, selling all tokens: ${actualTokenBalance.toString()}`
+                    );
+                }
+
                 tradeEvent = {
                     type: 'sell',
                     protocol: protocol as 'pumpfun' | 'pumpamm',
                     mint: mint,
                     user: connectionManager.wallet.publicKey.toString(),
                     creator: creator,
-                    tokenAmount: tokenAmount,
+                    tokenAmount: sellTokenAmount,
                     solAmount: BigInt(0), // Will be determined by the sell
                     timestamp: Date.now(),
                 };

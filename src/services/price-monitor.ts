@@ -45,6 +45,8 @@ export interface TrackedToken {
     targetWalletBuyPrice: number; // Price when target wallet bought (SOL per token)
     targetWalletBuyLiquidity?: number; // Liquidity when target wallet bought (SOL)
     targetWalletBalanceBeforeBuy?: number; // Target wallet balance before buy transaction (SOL)
+    targetWalletSolAmount?: number; // SOL amount target wallet spent on buy
+    targetWalletTokenAmount?: bigint; // Token amount target wallet bought
     targetWalletSellTime?: number; // Timestamp when target wallet sold (if sold)
     targetWalletSellPrice?: number; // Price when target wallet sold (SOL per token)
     targetWalletSellLiquidity?: number; // Liquidity when target wallet sold (SOL)
@@ -78,6 +80,8 @@ export interface PriceUpdateEvent {
     targetWalletBuyPrice: number;
     targetWalletBuyLiquidity?: number; // Liquidity when target wallet bought (SOL)
     targetWalletBalanceBeforeBuy?: number; // Target wallet balance before buy transaction (SOL)
+    targetWalletBuyAmount?: number; // SOL amount target wallet spent on buy
+    targetWalletTokenAmount?: string; // Token amount target wallet bought (as string for JSON)
     targetWalletSellTime?: number;
     targetWalletSellPrice?: number;
     targetWalletSellLiquidity?: number; // Liquidity when target wallet sold (SOL)
@@ -412,6 +416,8 @@ export class PriceMonitor extends EventEmitter {
         targetWalletBuyTime?: number,
         targetWalletBuyPrice?: number,
         targetWalletBalanceBeforeBuy?: number,
+        targetWalletSolAmount?: number,
+        targetWalletTokenAmount?: bigint,
     ): Promise<void> {
         try {
             const mintPubkey = new PublicKey(mint);
@@ -450,6 +456,8 @@ export class PriceMonitor extends EventEmitter {
                 targetWalletBuyPrice: targetWalletBuyPrice ?? buyPrice,
                 targetWalletBuyLiquidity: buyLiquidity, // Liquidity when target wallet bought
                 targetWalletBalanceBeforeBuy: targetWalletBalanceBeforeBuy, // Balance before buy
+                targetWalletSolAmount: targetWalletSolAmount, // SOL amount target wallet spent
+                targetWalletTokenAmount: targetWalletTokenAmount, // Token amount target wallet bought
                 tokenLaunchTime,
                 lastPrice: buyPrice,
                 lastUpdate: Date.now(),
@@ -692,6 +700,8 @@ export class PriceMonitor extends EventEmitter {
                 targetWalletBuyPrice: token.targetWalletBuyPrice,
                 targetWalletBuyLiquidity: token.targetWalletBuyLiquidity,
                 targetWalletBalanceBeforeBuy: token.targetWalletBalanceBeforeBuy,
+                targetWalletBuyAmount: token.targetWalletSolAmount,
+                targetWalletTokenAmount: token.targetWalletTokenAmount?.toString(),
                 targetWalletSellTime: token.targetWalletSellTime,
                 targetWalletSellPrice: token.targetWalletSellPrice,
                 targetWalletSellLiquidity: token.targetWalletSellLiquidity,
